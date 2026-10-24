@@ -1,0 +1,3109 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sonda — mapa de profundidad de proyectos</title>
+<!-- sin pedidos a internet: la página no habla con ningún servidor -->
+<style>
+  :root{
+    /* --- paleta batimetrica invertida: el color codifica el nivel, no decora.
+           Los mismos tonos de siempre, recorridos al reves: el rojo queda
+           arriba, en el nivel de proyecto, y se hunde hacia el azul profundo a
+           medida que se baja. Sobre un gris neutro lo que hace visible una
+           barra es el croma, no el brillo.
+           Si cambias este orden, cambia tambien la entrada "Bathymetric" de
+           PALETAS para que el boton siga marcandose como activo. --- */
+    --d0:#CF503A;
+    --d1:#E7A82B;
+    --d2:#6DBD55;
+    --d3:#16A492;
+    --d4:#0E7597;
+    --d5:#0E3B64;
+
+    /* Estos valores son los mismos que aplica el botón "Oscuro" del panel de
+       colores. Si los cambiás acá, cambiá también DUOS.oscuro más abajo para
+       que el botón siga devolviendo al mismo lugar. */
+    --paper:#212121;
+    --paper-2:#444444;
+    --white:#181818;   /* superficie de edicion: mas honda que el papel */
+    --ink:#C0C0C0;
+    --ink-2:#C0C0C0;
+    --ink-3:#FFFFFF;
+    --rule:#5E5E5E;
+
+    --row-h:34px;
+    --indent:26px;
+
+    /* Flechas de descendencia. Un solo número gobierna el grosor: el asta, el
+       tronco y la punta se derivan de él. --flecha-w es el ancho que la flecha
+       ocupa en la fila, o sea cuánto corre el título hacia la derecha. */
+    --flecha:5px;
+    --flecha-w:16px;
+
+    /* tipografías del sistema: nada que descargar.
+       Se conserva la pareja de siempre — una de texto y una monoespaciada —
+       porque la interfaz usa la mono para etiquetas y números, y esa
+       diferencia es la que separa un dato de un título. */
+    --font-d:'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --font-m:ui-monospace, 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-d);
+    font-size:15px;
+    line-height:1.35;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer}
+  /* el manual de teclado promete que el foco se ve: acá se cumple */
+  button:focus-visible,[contenteditable]:focus-visible{
+    outline:1px solid var(--ink-3);outline-offset:1px;
+  }
+
+  .wrap{max-width:980px;margin:0 auto;padding:0 20px 140px}
+
+  /* ============ CABECERA / CONSOLA ============ */
+  .console{
+    position:sticky;top:0;z-index:20;
+    background:var(--paper);
+    padding:22px 0 14px;
+    border-bottom:1px solid var(--rule);
+  }
+  .console-top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  h1{font-size:19px;font-weight:700;letter-spacing:-0.02em;margin:0}
+  h1 span{color:var(--ink-3);font-weight:500}
+  .status{
+    margin-left:auto;font-family:var(--font-m);font-size:10.5px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+    transition:color .3s;
+  }
+  .status.on{color:var(--d2)}
+  .status.pend{color:var(--d4)}
+
+  /* guardar = escribir el archivo. Mientras haya cambios sin escribir,
+     el botón se enciende; apagado quiere decir que el archivo está al día. */
+  .guardar{
+    font-family:var(--font-m);font-size:10px;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--ink-3);
+    padding:5px 11px;border:1px solid var(--rule);border-radius:2px;
+    transition:color .2s, border-color .2s, background .2s;
+  }
+  .guardar:hover{color:var(--ink-2);border-color:var(--ink-3)}
+  .guardar.pend{
+    color:var(--ink);border-color:var(--d4);background:var(--paper-2);
+  }
+  .guardar.pend:hover{background:var(--d4);color:#1C1C1C;border-color:var(--d4)}
+
+  /* --- pestañas de proyecto: misma caja de antes, otra funcion --- */
+  .tabbar{display:flex;gap:2px;margin-bottom:12px;align-items:stretch}
+  .tabs{
+    display:flex;gap:2px;flex:1;min-width:0;
+    overflow-x:auto;scrollbar-width:thin;
+  }
+  .tab{
+    flex:1 1 0;min-width:78px;max-width:200px;
+    padding:6px 7px 7px;text-align:left;
+    border-top:3px solid var(--rule);
+    border-top-color:color-mix(in srgb, var(--c, var(--rule)) 32%, transparent);
+    font-family:var(--font-m);font-size:9.5px;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--ink-3);
+    background:transparent;
+    transition:color .2s, background .2s, border-color .2s;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .tab:hover{color:var(--ink-2);background:var(--paper-2)}
+  .tab.on{
+    color:var(--ink);
+    border-top-color:var(--c, var(--rule));
+    background:var(--paper-2);
+    background:color-mix(in srgb, var(--c, var(--paper-2)) 10%, transparent);
+  }
+  .tab.all{flex:0 1 96px;min-width:64px}
+  /* el + queda afuera del scroll: no se va nunca de la pantalla */
+  .tab.new{
+    flex:none;width:30px;min-width:0;text-align:center;
+    font-size:13px;padding:4px 0 6px;
+    border-top-color:var(--rule);
+  }
+  .tab.new:hover{border-top-color:var(--ink-3)}
+
+  .global{display:flex;align-items:center;gap:16px}
+  .global + .global{margin-top:9px}
+  .global label{
+    font-family:var(--font-m);font-size:10.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-2);white-space:nowrap;
+    min-width:88px;
+  }
+  /* "Profundidad" sale de la vista pero no del documento: el fader sigue
+     teniendo nombre para quien lo escucha en vez de verlo */
+  .sr,.global label.sr{
+    position:absolute;width:1px;height:1px;min-width:0;padding:0;margin:-1px;
+    overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;
+  }
+  .global .fader{flex:1}
+  .readout{
+    font-family:var(--font-m);font-size:13px;font-weight:600;
+    min-width:52px;text-align:right;color:var(--ink);
+  }
+  .readout em{color:var(--ink-3);font-style:normal;font-weight:400}
+  .readout .lvl{
+    display:block;font-size:9.5px;font-weight:400;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--ink-3);margin-top:1px;
+  }
+  /* el hueco del readout es fijo, asi el fader mide siempre lo mismo:
+     104px en "Todos" (el numero) y 192px dentro de una pestaña, que es el
+     largo que tomaba con "Mudanza al deposito nuevo" abierto */
+  .global .slot{
+    flex:none;width:104px;min-height:24px;position:relative;
+    display:flex;align-items:center;justify-content:flex-end;
+    transition:width .16s ease;
+  }
+  .global .slot.ancho{width:192px}
+  .global .slot .readout{min-width:0;max-width:100%}
+  /* El número de profundidad y el nombre del nivel no se muestran. El hueco
+     sobrevive solo cuando ahí va el nombre del proyecto, que no es un rótulo
+     sino el campo donde se lo renombra; sin pestaña abierta el hueco se cierra
+     —gap incluido— y el fader llega hasta el borde. */
+  .global .readout:not(.proj){display:none}
+  .global .slot:not(.ancho){width:0;min-height:0;margin-left:-16px}
+  /* dentro de una pestaña el numero deja lugar al nombre del proyecto, que
+     ademas se edita ahi mismo: alineado a la izquierda, pegado al fader */
+  .global .readout.proj{
+    width:100%;
+    font-size:10.5px;font-weight:400;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-3);
+    text-align:left;cursor:text;border-radius:2px;padding:3px 4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transition:width .16s ease;
+  }
+  .global .readout.proj:hover{color:var(--ink-2)}
+  /* al escribir se despega y crece hacia la izquierda, por encima del fader:
+     el fader no se mueve ni un pixel */
+  .global .readout.proj:focus{
+    position:absolute;right:0;width:250px;max-width:none;z-index:6;
+    outline:none;color:var(--ink);background:var(--white);
+    box-shadow:0 0 0 1px var(--rule);text-overflow:clip;
+  }
+  .global .readout.proj:empty::before{content:'Project name';color:var(--ink-3)}
+
+  /* ============ FADER HORIZONTAL (profundidad) ============ */
+  input[type=range].fader{
+    -webkit-appearance:none;appearance:none;
+    background:transparent;height:18px;margin:0;cursor:ew-resize;display:block;
+  }
+  input[type=range].fader:focus{outline:none}
+  input[type=range].fader::-webkit-slider-runnable-track{height:3px;background:var(--rule)}
+  input[type=range].fader::-moz-range-track{height:3px;background:var(--rule)}
+  input[type=range].fader::-moz-range-progress{height:3px;background:var(--fill,var(--ink-2))}
+  input[type=range].fader::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:9px;height:17px;margin-top:-7px;
+    background:var(--fill,var(--ink));border-radius:1px;
+    box-shadow:0 0 0 3px var(--paper);
+    transition:transform .12s;
+  }
+  input[type=range].fader::-moz-range-thumb{
+    width:9px;height:17px;border:0;border-radius:1px;
+    background:var(--fill,var(--ink));box-shadow:0 0 0 3px var(--paper);
+  }
+  /* variante del fader global: la pista es la leyenda de niveles.
+     Un bloque por nivel, encendido con su color hasta el valor actual. */
+  input[type=range].fader.wide{height:24px}
+  input[type=range].fader.wide::-webkit-slider-runnable-track{
+    height:8px;background:var(--track,var(--rule));
+  }
+  input[type=range].fader.wide::-moz-range-track{
+    height:8px;background:var(--track,var(--rule));
+  }
+  input[type=range].fader.wide::-moz-range-progress{background:transparent}
+  input[type=range].fader.wide::-webkit-slider-thumb{
+    width:7px;height:22px;margin-top:-7px;border-radius:1px;
+    background:var(--ink);box-shadow:0 0 0 3px var(--paper);
+    transition:none;
+  }
+  input[type=range].fader.wide::-moz-range-thumb{
+    width:7px;height:22px;background:var(--ink);box-shadow:0 0 0 3px var(--paper);
+  }
+
+  input[type=range].fader:hover::-webkit-slider-thumb{transform:scaleY(1.18)}
+  input[type=range].fader:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--ink)}
+  input[type=range].fader:focus-visible::-moz-range-thumb{box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--ink)}
+
+  /* ============ GRUPO + FADER VERTICAL (cantidad) ============ */
+  .group{
+    position:relative;
+    margin-left:var(--indent);
+    border-left:1px solid var(--rule);
+  }
+  .group.root{margin-left:12px}
+
+  ul.kids{list-style:none;margin:0;padding:0}
+
+  /* el fader vertical va montado sobre la regla del grupo:
+     se rota 90deg, asi que su "width" es en realidad su largo visible */
+  input[type=range].vfader{
+    -webkit-appearance:none;appearance:none;
+    position:absolute;left:7px;top:1px;
+    width:60px;height:14px;margin:0;padding:0;
+    background:transparent;cursor:ns-resize;z-index:6;
+    transform:rotate(90deg);transform-origin:left top;
+    transition:width .16s ease;
+  }
+  input[type=range].vfader:focus{outline:none}
+  input[type=range].vfader::-webkit-slider-runnable-track{height:14px;background:transparent}
+  input[type=range].vfader::-moz-range-track{height:14px;background:transparent}
+  input[type=range].vfader::-moz-range-progress{background:transparent}
+  input[type=range].vfader::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:7px;height:15px;margin-top:-0.5px;border-radius:1px;
+    background:var(--ink-3);box-shadow:0 0 0 2px var(--paper);
+    transition:background .12s, height .12s;
+  }
+  input[type=range].vfader::-moz-range-thumb{
+    width:7px;height:15px;border:0;border-radius:1px;
+    background:var(--ink-3);box-shadow:0 0 0 2px var(--paper);
+  }
+  input[type=range].vfader:hover::-webkit-slider-thumb{background:var(--ink);height:19px}
+  input[type=range].vfader:hover::-moz-range-thumb{background:var(--ink)}
+  input[type=range].vfader:focus-visible::-webkit-slider-thumb{background:var(--ink);box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--ink)}
+  input[type=range].vfader:focus-visible::-moz-range-thumb{background:var(--ink);box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--ink)}
+
+  .rest{
+    display:block;width:100%;text-align:left;
+    font-family:var(--font-m);font-size:10.5px;letter-spacing:.06em;
+    color:var(--ink-3);padding:5px 0 8px 14px;
+  }
+  .rest:hover{color:var(--ink)}
+
+  /* ============ FILAS ============ */
+  li.node{position:relative}
+
+  .row{
+    position:relative;
+    display:flex;align-items:center;gap:10px;
+    min-height:var(--row-h);padding:0 4px 0 0;
+  }
+
+  /* Avance como forma, no como barra aparte: la propia fila se tiñe desde la
+     izquierda con el color de su nivel, y el frente del relleno se marca con un
+     degradado corto para que se vea dónde llega sin tapar el texto.
+
+     Acá volví al ancho en lugar de clip-path, y es a propósito: el degradado
+     tiene que terminar justo en el borde del avance, y recortar esconde pero no
+     mueve, así que el degradado se quedaba pegado al final de la fila. Un borde
+     que tiene que estar en el límite necesita una caja que termine en el límite.
+     Es una caja absoluta, así que no arrastra a nada de su alrededor. */
+  .relleno{
+    position:absolute;left:0;top:0;bottom:0;width:0;
+    overflow:hidden;pointer-events:none;border-radius:2px;
+    transition:width .28s ease-out;
+  }
+  /* el cuerpo, tenue y parejo */
+  .relleno::before{
+    content:'';position:absolute;inset:0;
+    background:var(--c, var(--ink-3));opacity:.17;
+  }
+  /* el frente: pocos pixeles, bastante más intenso */
+  .relleno::after{
+    content:'';position:absolute;right:0;top:0;bottom:0;width:22px;
+    background:linear-gradient(to right, transparent, var(--c, var(--ink-3)));
+    opacity:.5;
+  }
+  .row > *:not(.relleno){position:relative}
+  .row:hover{background:var(--paper-2)}
+  /* la agarradera enfocada imita al mouse: la fila se enciende igual, venga
+     el foco del clic o del teclado */
+  .row:has(.grip:focus){background:var(--paper-2)}
+  .row.editing{background:var(--white)}
+
+  .bar{width:3px;align-self:stretch;margin:0 9px 0 -1px;flex:none;background:var(--c)}
+
+  /* --- flechas de descendencia ------------------------------------------
+     Cada hija recibe una flecha que baja desde la fila de la madre y dobla
+     hacia ella. El codo entero —tronco vertical y asta horizontal— lleva el
+     color del nivel de la madre, que el grupo hereda a toda su lista en
+     --cp; la punta lleva el color de la hija, el mismo --c que ya usaba la
+     barrita que había en ese lugar.
+
+     El tronco se arma por tramos: cada hermana dibuja el pedazo que le toca,
+     de su borde de arriba hasta abajo del todo, y el siguiente tramo lo
+     continúa sin corte. La última hermana llega solo hasta su propio codo,
+     así el tronco termina en la última flecha y no queda un muñón colgando.
+     Por eso ese tramo lo pone la fila y no el nodo: la fila sabe dónde está
+     su centro aunque el título ocupe dos renglones.
+
+     Va por encima del fondo de la fila (z-index) para que no lo tape el
+     resaltado al pasar el mouse.
+
+     No la llevan los nodos de la lista raíz: no salen de ninguna tarea. */
+  .group:not(.root) > ul.kids > li.node::before,
+  .group:not(.root) > ul.kids > li.node:last-child > .row::before{
+    content:'';position:absolute;z-index:1;
+    left:-1px;top:0;bottom:0;width:var(--flecha);
+    background:var(--cp,var(--rule));
+  }
+  .group:not(.root) > ul.kids > li.node:last-child::before{display:none}
+  .group:not(.root) > ul.kids > li.node:last-child > .row::before{bottom:50%}
+
+  /* el codo y la punta ocupan el lugar de la barrita, con más ancho */
+  .group:not(.root) > ul.kids > li.node > .row > .bar{
+    position:relative;align-self:center;
+    width:var(--flecha-w);height:calc(var(--flecha) * 3.2);
+    margin:0 0 0 -1px;
+    background:none;
+  }
+  /* asta horizontal: sale del tronco */
+  .group:not(.root) > ul.kids > li.node > .row > .bar::before{
+    content:'';position:absolute;left:0;top:50%;
+    width:calc(var(--flecha-w) - 7px);height:var(--flecha);
+    margin-top:calc(var(--flecha) / -2);
+    background:var(--cp,var(--rule));
+  }
+  /* punta: triángulo del color de la hija, apoyado en el título */
+  .group:not(.root) > ul.kids > li.node > .row > .bar::after{
+    content:'';position:absolute;right:0;top:50%;
+    width:0;height:0;
+    margin-top:calc(var(--flecha) * -1.6);
+    border-left:calc(var(--flecha) * 1.8) solid var(--c);
+    border-top:calc(var(--flecha) * 1.6) solid transparent;
+    border-bottom:calc(var(--flecha) * 1.6) solid transparent;
+  }
+
+  .title{
+    flex:1;min-width:0;font-size:15px;letter-spacing:-0.005em;
+    padding:6px 2px;border-radius:2px;outline:none;cursor:text;
+    overflow-wrap:anywhere;
+  }
+  li.node[data-level="0"] > .row > .title{font-weight:600;font-size:16px}
+
+  /* Solo el nivel 1. ui-serif es la serif del sistema —New York en Mac— y cae
+     a las que ya están instaladas en cualquier otro lado. Nada que descargar. */
+  li.node[data-level="1"] > .row > .title{
+    font-family:ui-serif,'New York','Iowan Old Style',Palatino,Georgia,serif;
+    font-size:16px;letter-spacing:0;
+  }
+  .title:focus{background:var(--white);box-shadow:0 0 0 1px var(--rule)}
+
+  .count{font-family:var(--font-m);font-size:10.5px;color:var(--ink-3);flex:none;letter-spacing:.04em}
+  .count.hidden-items{color:var(--ink-2)}
+
+  /* Los números al lado del fader: el de la derecha no se dibuja; el de la
+     izquierda —cuántos hijos tiene un nodo cerrado— sigue ahí, pintado con el
+     color del fondo. Si cambiás --paper, los dos siguen el cambio solos. */
+  .row .readout{display:none}
+  .row .count,.row .count.hidden-items{color:var(--paper)}
+
+  /* Agarradera para reordenar: sin marca visible, del color del fondo.
+     La única pista es el cursor, que pasa a mano al acercarse. */
+  .grip{
+    width:18px;height:24px;flex:none;border-radius:2px;
+    background:var(--paper);
+    cursor:grab;touch-action:none;
+  }
+  .grip:focus-visible{outline:1px solid var(--ink-3);outline-offset:1px}
+  .grip.activo{cursor:grabbing}
+
+  li.node.arrastrando{opacity:.9}
+  li.node.arrastrando > .row{
+    background:var(--white);
+    box-shadow:0 1px 0 var(--rule),0 -1px 0 var(--rule);
+  }
+
+  body.reordenando{cursor:grabbing;user-select:none;-webkit-user-select:none}
+
+  .row .fader{width:104px;flex:none}
+  .leaf-mark{width:104px;flex:none;height:3px;background:var(--rule);opacity:.5}
+  .row .readout{min-width:36px;font-size:11px}
+
+  /* ============ RANURA: un lugar, tres estados ============
+     En reposo muestra el avance. Con el mouse encima, mover / + / ✔.
+     Con el foco en la edición, el peso y ×. Las tres capas van superpuestas
+     y el ancho es fijo, así la fila no salta al cambiar de estado. */
+  .ranura{position:relative;flex:none;width:80px;height:24px}
+  .ranura > div{
+    position:absolute;right:0;top:0;height:24px;
+    display:flex;align-items:center;justify-content:flex-end;gap:1px;
+    transition:opacity .12s;
+  }
+  .ranura .acciones,.ranura .edicion{opacity:0;pointer-events:none}
+  .avance{
+    font-family:var(--font-m);font-size:11px;letter-spacing:.02em;
+    color:var(--ink-3);padding-right:3px;
+  }
+  .row:hover .avance,.row:focus-within .avance{opacity:0}
+  .row:hover .acciones,.row:focus-within .acciones{opacity:1;pointer-events:auto}
+  /* editar gana sobre pasar el mouse */
+  .row.editing .avance,.row.editing .acciones{opacity:0;pointer-events:none}
+  .row.editing .edicion{opacity:1;pointer-events:auto}
+
+  .peso{
+    font-family:var(--font-m);font-size:11px;text-align:center;
+    min-width:34px;padding:2px 4px;margin-right:2px;
+    color:var(--ink);background:var(--white);
+    border:1px solid var(--rule);border-radius:2px;outline:none;
+  }
+  .peso:focus{border-color:var(--ink-3)}
+  .peso.fijo{background:none;border-color:transparent;color:var(--ink-3)}
+  /* el peso propio se distingue del peso entre hermanas por el borde punteado */
+  .peso.propio{border-style:dashed}
+
+  .act{
+    width:24px;height:24px;font-family:var(--font-m);font-size:13px;
+    color:var(--ink-3);border-radius:2px;line-height:1;flex:none;
+  }
+  .act:hover{background:var(--ink);color:var(--paper)}
+
+  @keyframes surface{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+  li.node.new-in{animation:surface .18s ease-out both}
+
+  /* zona muerta al pie de la lista: no se ve hasta que le pasas el mouse */
+  .addrow{
+    display:block;width:100%;height:24px;
+    background:transparent;border:0;padding:0;
+    transition:background .12s;
+  }
+  .addrow:hover,.addrow:focus-visible{background:var(--paper-2);outline:none}
+  .addrow.pista{
+    height:var(--row-h);text-align:left;padding-left:12px;
+    font-family:var(--font-m);font-size:10.5px;letter-spacing:.06em;color:var(--ink-3);
+  }
+
+  /* ============ IMÁGENES ============
+     Una por tarea, guardada dentro del archivo y comprimida a lo justo para
+     reconocerla. En la fila es una miniatura del alto del renglón, así la
+     fila no cambia de altura ni el árbol pierde el ritmo; al tocarla se ve
+     en su tamaño real. */
+  .mini{
+    flex:none;display:flex;align-items:center;
+    height:24px;padding:0;border-radius:2px;overflow:hidden;
+    box-shadow:0 0 0 1px var(--rule);
+    cursor:zoom-in;
+  }
+  .mini[hidden]{display:none}
+  .mini img{display:block;height:24px;width:auto;max-width:44px;object-fit:cover}
+  .mini:hover{box-shadow:0 0 0 1px var(--ink-3)}
+
+  /* con un archivo arrastrado encima, la fila avisa que lo va a recibir */
+  .row.soltando{background:var(--paper-2);box-shadow:inset 0 0 0 1px var(--ink-3)}
+
+  .visor{
+    position:fixed;inset:0;z-index:60;
+    display:flex;align-items:center;justify-content:center;
+    padding:32px 20px;
+    background:rgba(0,0,0,.6);
+    background:color-mix(in srgb, var(--paper) 86%, transparent);
+  }
+  .visor[hidden]{display:none}
+  /* el pie mide lo que mide la imagen: no aporta ancho propio (width:0) y
+     se estira al de la figura (min-width:100%) */
+  .visor figure{margin:0;min-width:280px;max-width:100%}
+  .visor img{
+    display:block;margin:0 auto;
+    max-width:100%;max-height:calc(100vh - 116px);width:auto;height:auto;
+    box-shadow:0 0 0 1px var(--rule),0 12px 34px rgba(0,0,0,.30);
+  }
+  .visor figcaption{
+    display:flex;align-items:center;gap:6px;
+    width:0;min-width:100%;margin-top:10px;
+  }
+  .visor .nombre{
+    flex:1;min-width:0;font-size:14px;color:var(--ink);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .visor .peso-img{
+    font-family:var(--font-m);font-size:10.5px;color:var(--ink-3);
+    margin-right:6px;flex:none;
+  }
+  .visor button{
+    flex:none;
+    font-family:var(--font-m);font-size:10px;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--ink-3);
+    padding:5px 11px;border:1px solid var(--rule);border-radius:2px;
+  }
+  .visor button:hover{color:var(--ink);border-color:var(--ink-3)}
+
+  /* ============ HERRAMIENTA DE COLOR ============ */
+  .devtoggle{
+    position:fixed;right:16px;bottom:16px;z-index:40;
+    font-family:var(--font-m);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);
+    background:var(--paper);border:1px solid var(--rule);
+    padding:7px 11px;border-radius:2px;
+  }
+  .devtoggle:hover{color:var(--ink);border-color:var(--ink-3)}
+  .dev{
+    position:fixed;right:16px;bottom:52px;z-index:40;width:252px;
+    max-height:min(76vh,640px);overflow-y:auto;
+    background:var(--paper);border:1px solid var(--rule);
+    padding:13px 13px 14px;border-radius:2px;
+    box-shadow:0 12px 34px rgba(0,0,0,.30);
+  }
+  .dev[hidden]{display:none}
+  /* la línea que separaba las dos mitades del panel: se quedó sin título */
+  .dev .sep{margin:16px 0 12px;border-top:1px solid var(--rule)}
+
+  /* duos: los tres juegos de color de interfaz */
+  .dev .duos{display:flex;gap:5px;margin-bottom:11px}
+  .dev .duos button{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;
+    padding:6px 4px 7px;border:1px solid transparent;border-radius:2px;
+    font-family:var(--font-m);font-size:8.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-3);
+  }
+  .dev .duos button:hover{border-color:var(--rule);background:var(--paper-2)}
+  .dev .duos button.on{border-color:var(--ink-3);color:var(--ink)}
+  .dev .duos button:disabled{opacity:.4;cursor:default}
+  .dev .duos .muestra{
+    display:flex;width:100%;height:13px;border:1px solid var(--rule);
+  }
+  .dev .duos .muestra i{flex:1;display:block}
+  .dev .guardarDuo{
+    display:block;width:100%;margin:-6px 0 11px;
+    font-family:var(--font-m);font-size:8.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-3);text-align:right;
+  }
+  .dev .guardarDuo:hover{color:var(--ink)}
+
+  .dev .fila{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+  .dev .fila label{
+    flex:1;min-width:0;font-family:var(--font-m);font-size:9px;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .dev input.hex{
+    width:70px;flex:none;font-family:var(--font-m);font-size:10.5px;
+    padding:3px 5px;border-radius:2px;
+    background:var(--white);color:var(--ink);border:1px solid var(--rule);
+  }
+  .dev input.hex:focus{outline:none;border-color:var(--ink-3)}
+  .dev input.hex.mal{border-color:var(--d5)}
+  .dev input[type=color]{
+    width:19px;height:19px;flex:none;padding:0;border-radius:2px;
+    border:1px solid var(--rule);background:none;cursor:pointer;
+  }
+  .dev .paleta{
+    display:flex;align-items:center;gap:8px;width:100%;
+    padding:4px 5px;margin-bottom:2px;border-radius:2px;
+    border:1px solid transparent;
+  }
+  .dev .paleta:hover{border-color:var(--rule);background:var(--paper-2)}
+  .dev .paleta.on{border-color:var(--ink-3)}
+  .dev .paleta .tira{display:flex;flex:none}
+  .dev .paleta .tira i{width:12px;height:12px;display:block}
+  .dev .paleta span{
+    font-family:var(--font-m);font-size:9px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-2);
+  }
+  .dev .paleta.on span{color:var(--ink)}
+  .dev .pie{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-top:13px;padding-top:11px;border-top:1px solid var(--rule);
+    font-family:var(--font-m);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  }
+  .dev .pie button{color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;font-size:9px;font-family:var(--font-m)}
+  .dev .pie button:hover{color:var(--ink)}
+
+  /* ============ PIE ============ */
+  .add-project{
+    display:flex;align-items:center;gap:10px;margin-top:18px;
+    font-family:var(--font-m);font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-2);padding:10px 0;
+  }
+  /* dentro de un proyecto se corre para abajo: ahi el gesto natural es
+     agregar una tarea, no un proyecto nuevo */
+  .add-project.lejos{margin-top:86px}
+  .add-project:hover{color:var(--ink)}
+  /* sin rótulo al lado, el signo tiene que sostener solo el botón */
+  .add-project .plus{
+    width:30px;height:30px;border:1px solid var(--rule);
+    display:grid;place-items:center;font-size:20px;line-height:1;
+  }
+  .add-project:hover .plus{border-color:var(--ink);background:var(--ink);color:var(--paper)}
+
+  .empty{padding:60px 0 20px;max-width:44ch}
+  .empty p{color:var(--ink-2);margin:0 0 6px;font-size:14px}
+  .empty strong{display:block;color:var(--ink);font-size:17px;font-weight:600;margin-bottom:10px}
+
+  .help{
+    font-family:var(--font-m);font-size:11px;line-height:1.9;color:var(--ink-3);
+    letter-spacing:.02em;
+  }
+
+  /* ============ INSTRUCCIONES ============
+     Las teclas se leen una vez y después estorban: ocupaban el pie entero.
+     Ahora viven en un panel que aparece al pasar el mouse por el botón.
+
+     El panel arranca escondido con visibility, no con display, para poder
+     aparecer con una transición. Eso tiene una consecuencia: lo escondido no
+     recibe foco, así que los botones de adentro —guardar los datos, cargar
+     copia, vaciar— serían inalcanzables con el teclado. Por eso el disparador
+     es también :focus-within: al llegar con Tab al botón, que sí está a la
+     vista, el panel se abre y recién entonces lo de adentro entra en la ronda.
+
+     Y un clic lo fija, porque donde no hay mouse no hay nada por encima de
+     qué pasar. */
+  .ayuda{position:fixed;left:16px;bottom:16px;z-index:40}
+  .ayuda .abrir{
+    font-family:var(--font-m);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);
+    background:var(--paper);border:1px solid var(--rule);
+    padding:7px 11px;border-radius:2px;
+  }
+  .ayuda:hover .abrir,.ayuda:focus-within .abrir,.ayuda.fija .abrir{
+    color:var(--ink);border-color:var(--ink-3);
+  }
+  .ayuda .panel{
+    position:absolute;left:0;bottom:100%;
+    width:min(720px,calc(100vw - 32px));
+    max-height:min(72vh,560px);overflow-y:auto;
+    margin:0 0 7px;padding:14px 16px 15px;
+    background:var(--paper);border:1px solid var(--rule);border-radius:2px;
+    box-shadow:0 12px 34px rgba(0,0,0,.30);
+    visibility:hidden;opacity:0;
+    transition:opacity .12s ease, visibility 0s linear .12s;
+  }
+  /* el margen de arriba deja un escalón entre botón y panel; este puente
+     invisible lo cubre para que el mouse no pierda el hover al subir */
+  .ayuda .panel::after{
+    content:'';position:absolute;left:0;right:0;top:100%;height:8px;
+  }
+  .ayuda:hover .panel,.ayuda:focus-within .panel,.ayuda.fija .panel{
+    visibility:visible;opacity:1;transition:opacity .12s ease;
+  }
+  .help b{color:var(--ink-2);font-weight:500}
+  .help .reset{color:var(--ink-3);text-decoration:underline;text-underline-offset:3px}
+  .help .reset:hover{color:var(--d5)}
+  .help .accion{color:var(--ink-3);text-decoration:underline;text-underline-offset:3px}
+  .help .accion:hover{color:var(--d2)}
+
+  /* Teclas dibujadas como teclas. La superficie no es un color propio: se
+     calcula levantando el papel hacia la tinta con color-mix, así que sigue
+     sola cualquier cambio de paleta y el panel de colores no necesita saber
+     que estas teclas existen. */
+  kbd{
+    display:inline-block;min-width:1.5em;padding:2px 5px 3px;
+    font-family:var(--font-m);font-size:9.5px;line-height:1.25;
+    text-align:center;white-space:nowrap;color:var(--ink);
+    background:var(--paper-2);
+    background:color-mix(in srgb, var(--paper) 84%, var(--ink));
+    border:1px solid var(--rule);
+    border-color:color-mix(in srgb, var(--rule) 70%, var(--ink));
+    border-bottom-width:2px;border-radius:3px;
+    vertical-align:baseline;
+  }
+  .help{line-height:2.1}
+
+  @media (max-width:620px){
+    :root{--indent:20px}
+    .row .fader,.leaf-mark{width:64px}
+    .tab{font-size:8.5px;padding-left:5px;min-width:64px}
+    .global label{min-width:0}
+    .global .slot.ancho{width:min(192px,34vw)}
+    .global .readout.proj:focus{width:min(250px,62vw)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.001ms !important;transition-duration:.001ms !important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="console">
+    <div class="console-top">
+      <h1>Sonda <span id="subtitulo" lang="es">— mapa de profundidad</span></h1>
+      <div class="status" id="status">saved</div>
+      <button class="guardar" id="guardarArchivo" title="Writes the file with everything that’s here now (⌘S)">Save file</button>
+    </div>
+    <div class="tabbar">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <button class="tab new" id="newTab" title="New project in a new tab">+</button>
+    </div>
+    <div class="global">
+      <label for="globalFader" class="sr">Depth</label>
+      <input type="range" class="fader wide" id="globalFader" min="0" max="5" step="1" value="0">
+      <div class="slot"><div class="readout" id="globalReadout">0<em>/5</em><span class="lvl">Project</span></div></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="group root" id="rootGroup"></div>
+    <div id="emptyState"></div>
+    <button class="add-project" id="addProject" title="New project" aria-label="New project">
+      <span class="plus">+</span>
+    </button>
+  </main>
+</div>
+
+<div class="ayuda" id="ayuda">
+  <button class="abrir" id="ayudaAbrir" aria-expanded="false" aria-controls="ayudaPanel">instructions</button>
+  <div class="help panel" id="ayudaPanel">
+    <kbd>Tab</kbd> goes through everything · <kbd>⇧Tab</kbd> goes back · focus shows as an outline<br>
+    <kbd>Enter</kbd> on a title: confirms it and makes another one at the same level ·
+    <kbd>⇧Enter</kbd>: a subtask inside ·
+    <kbd>⌥Enter</kbd>: wraps it in a new parent · <kbd>Esc</kbd> cancels, and deletes the task if it is empty<br>
+    <kbd>←</kbd><kbd>→</kbd> with a fader focused: open levels or add items ·
+    <kbd>↑</kbd><kbd>↓</kbd> with the handle: move it among what is visible · <kbd>→</kbd> puts it inside the one above<br>
+    Dragging it leaves it above or below the row you drop it on · the depth is the one of the place where it lands<br>
+    <kbd>Space</kbd> fires the focused button: <b>+</b> inside, <b>✔</b> done, <b>×</b> deletes<br>
+    With the focus on the move button: <kbd>↑</kbd><kbd>↓</kbd> move it ·
+    <kbd>→</kbd> puts it inside the one above ·
+    <kbd>Space</kbd> or <kbd>Enter</kbd> sends it to <b>Now</b> · <kbd>Delete</kbd> deletes it<br>
+    <kbd>⌥</kbd> held down + arrows: jumps between the move, <b>+</b> and <b>✔</b> buttons<br>
+    <kbd>⌘V</kbd> on a title, with an image copied: pastes it onto that task ·
+    the file can also be dragged onto the row · touching the thumbnail shows it full size<br>
+    <kbd>⌘S</kbd> writes the file · while editing a title: weight among siblings (1 to 99) and,
+    if it has children, own weight (0 to 100, with a dashed border)
+    <br><button class="accion" id="exportar">Save data only (.json)</button> ·
+    <button class="accion" id="importar">Load a copy</button> ·
+    <button class="reset" id="reset">Empty it and start over</button>
+    <input type="file" id="archivoCopia" accept=".json,.html,application/json,text/html" hidden="">
+  </div>
+</div>
+
+<button class="devtoggle" id="devtoggle">colors</button>
+
+<div class="dev" id="dev" hidden="">
+  <div class="duos" id="devDuos"></div>
+  <div id="devTokens"></div>
+  <div class="sep"></div>
+  <div id="devPaletas"></div>
+  <div class="pie">
+    <button id="devReset">Restore</button>
+    <button id="devCerrar">Close</button>
+  </div>
+</div>
+
+<!-- la imagen de una tarea en su tamaño real; se abre tocando la miniatura -->
+<div class="visor" id="visor" hidden="" role="dialog" aria-modal="true" aria-labelledby="visorNombre">
+  <figure>
+    <img id="visorImg" alt="">
+    <figcaption>
+      <span class="nombre" id="visorNombre"></span>
+      <span class="peso-img" id="visorPeso"></span>
+      <button id="visorQuitar">Remove image</button>
+      <button id="visorCerrar">Close</button>
+    </figcaption>
+  </figure>
+</div>
+
+<!-- ==========================================================================
+     ACÁ VIVEN LOS DATOS. Este bloque es el archivo guardado: al apretar
+     "Guardar archivo" la app se vuelve a escribir a sí misma con el
+     contenido actualizado adentro de estas dos líneas.
+     ========================================================================== -->
+<script type="application/json" id="datos">{"v":4,"guardado":"2026-08-07T18:51:15.626Z","data":[],"global":0,"overrides":{},"gcount":3,"counts":{},"tab":null,"tuneo":{},"misColores":null,"ahora":[]}</script>
+
+<script>
+/* Copia limpia del archivo tal como está en el disco, tomada antes de que
+   nada se dibuje. Es el molde con el que se reescribe al guardar. */
+const FUENTE = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
+/* ==========================================================================
+   ESTADO
+   ========================================================================== */
+
+const NIVELES = ['Project','Subheading','Task','Subtask','Step','Substep'];
+const nivelNombre = i => NIVELES[i] || ('Level ' + (i+1));
+const colorNivel  = i => 'var(--d' + (i % 6) + ')';
+// misma rampa en hexa: hace falta para construir gradientes y transparencias.
+// Se lee del CSS al arrancar, asi los colores viven en un solo lugar.
+let RAMPA = ['#123B5C','#1F6E8C','#2E9E8F','#6FAF63','#D9A441','#C25E4A'];
+let COLOR_TODOS = '#5A626E';
+const hexNivel = i => RAMPA[((i % 6) + 6) % 6];
+function leerPaleta(){
+  const cs = getComputedStyle(document.documentElement);
+  const v = n => cs.getPropertyValue(n).trim();
+  RAMPA = RAMPA.map((c,i) => v('--d'+i) || c);
+  COLOR_TODOS = v('--ink-2') || COLOR_TODOS;
+}
+
+const RAIZ  = '__root';   // id de la lista de proyectos
+const AHORA = '__ahora';  // id de la hoja de trabajo
+let NIVEL_REAL = new Map();   // id -> profundidad real en el arbol
+const MINIMO = 3;        // nunca se muestran menos de 3
+
+let data = [];        // proyectos
+let global = 0;       // profundidad global
+let overrides = {};   // id -> profundidad de esa rama (sin memoria)
+let gcount = MINIMO;  // cantidad por defecto de cada lista
+let counts = {};      // idLista -> cuántos ítems se ven (con memoria)
+let tab = null;       // null = mapa completo; si no, id del proyecto abierto
+let tuneo = {};       // variables de color pisadas a mano desde el panel
+let misColores = null; // juego de interfaz guardado a mano (el botón "Míos")
+let ahora = [];       // ids mandados a la hoja "Ahora". Referencias, no copias.
+
+const uid = () => Math.random().toString(36).slice(2,9);
+// p = peso crudo dentro de su lista de hermanas. Nunca se guarda normalizado:
+// la fracción que se ve es p / suma de las hermanas, y se calcula al dibujar.
+// h = hecha. En una hoja es toda la marca. En un nodo con hijos es la marca de
+// su trabajo propio: la parte del avance que nadie le puede cerrar desde abajo.
+// q = peso propio, de 0 a 100: cuánto del avance no depende de los hijos. Con
+// 20 (el valor de fábrica), un nodo con todos los hijos hechos llega a 80 y
+// espera la marca explícita. Con 0 es una bolsa: lo deciden los hijos y se
+// cierra solo. Con 100 no delega nada.
+const nodo = (t, hijos=[]) => ({ id: uid(), t, c: hijos, p: 1, h: false, q: 20 });
+
+const SEMILLA = [
+  nodo('Move to the new storage unit', [
+    nodo('Before signing', [
+      nodo('Go over the contract', [
+        nodo('Mark the exit clauses'),
+        nodo('Ask about special assessments')
+      ]),
+      nodo('Measure the rooms', [
+        nodo('Bring tape and floor plans', [ nodo('Print the plan on A3') ])
+      ])
+    ]),
+    nodo('Logistics for the day', [
+      nodo('Hire a van'),
+      nodo('Pack boxes by room'),
+      nodo('Let the building manager know'),
+      nodo('Book the elevator'),
+      nodo('Buy wrap and tape')
+    ])
+  ]),
+  nodo('Photography course', [
+    nodo('Module 1 — Light', [
+      nodo('Watch the recorded classes'),
+      nodo('Hand in the assignment', [
+        nodo('Pick 8 photos'),
+        nodo('Write the text for each one')
+      ])
+    ]),
+    nodo('Module 2 — Portrait', [ nodo('Find a model') ])
+  ]),
+  nodo('Site redesign', [
+    nodo('Content', [
+      nodo('Rewrite the home page'),
+      nodo('Update the portfolio'),
+      nodo('Take out the old press copy'),
+      nodo('Check the photo captions'),
+      nodo('Translate the contact page'),
+      nodo('Ask for two testimonials')
+    ]),
+    nodo('Technical', [
+      nodo('Migrate the hosting', [ nodo('Full backup'), nodo('Point the domain')  ])
+    ])
+  ]),
+  nodo('Health'),
+  nodo('Ana’s birthday'),
+  nodo('Taxes for the year')
+];
+
+/* ==========================================================================
+   PERSISTENCIA — el archivo es la base de datos
+   --------------------------------------------------------------------------
+   No hay localStorage ni nada guardado en el navegador. Los datos viajan
+   adentro del propio .html, en el bloque <script id="datos">. Al guardar,
+   la app arma una copia entera de sí misma con el contenido puesto ahí y la
+   baja como archivo; vos la ponés en su carpeta y reemplazás la vieja.
+   ========================================================================== */
+
+let sucio = false;          // hay cambios que todavía no están en el disco
+let estadoTimer;
+
+const $status  = document.getElementById('status');
+const $botonG  = document.getElementById('guardarArchivo');
+
+// El estado fijo no se escribe: quien lo dice es el botón de guardar, que se
+// enciende mientras haya cambios sin escribir. El renglón queda vacío y solo
+// se usa para los avisos que pasan ("archivo escrito", "imagen agregada").
+// Vacío mide cero, pero su margen automático sigue empujando al botón.
+function pintarEstado(){
+  clearTimeout(estadoTimer);
+  $status.textContent = '';
+  $status.classList.remove('pend', 'on');
+  $botonG.classList.toggle('pend', sucio);
+}
+
+// mensaje pasajero (por ejemplo "archivo escrito"), despues vuelve al estado real
+function marcarEstado(txt){
+  clearTimeout(estadoTimer);
+  $status.textContent = txt;
+  $status.classList.add('on');
+  $status.classList.remove('pend');
+  estadoTimer = setTimeout(pintarEstado, 1600);
+}
+
+// Todas las ediciones llaman a guardar(). Ahora no escribe: anota que hay
+// cambios y enciende el boton. Escribir de verdad es una decision tuya.
+function guardar(){
+  sucio = true;
+  pintarEstado();
+}
+
+/* --- lo que entra de un archivo se comprueba antes de usarse ---
+   El bloque de datos es texto plano adentro del .html: cualquiera puede
+   escribirlo a mano y mandar el archivo como si fuera una copia de Sonda.
+   sanear() ya cuida el árbol; esto cuida los otros tres campos que no van a
+   parar a un textContent y por eso no se defienden solos. */
+
+// Los únicos nombres de color que la app conoce. Cualquier otro se descarta.
+const COLORES_VALIDOS = [
+  '--paper','--paper-2','--white','--ink','--ink-2','--ink-3','--rule',
+  '--d0','--d1','--d2','--d3','--d4','--d5'
+];
+const esColor = v => typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v.trim());
+
+/* Los colores guardados se aplican con setProperty sobre la raíz, y de ahí
+   entran en un background. Un valor libre como url(https://…/pixel.png) haría
+   que la página salga a pedir esa imagen al abrirse: justo lo único que esta
+   app promete no hacer. Por eso pasa un hexa y nada más. */
+function sanearColores(o){
+  const limpio = {};
+  if(o && typeof o === 'object'){
+    COLORES_VALIDOS.forEach(k => { if(esColor(o[k])) limpio[k] = o[k].trim(); });
+  }
+  return limpio;
+}
+
+// mapas de id -> numero: lo que no sea un entero no entra
+function soloEnteros(o){
+  const limpio = {};
+  if(o && typeof o === 'object') Object.keys(o).forEach(k => {
+    const n = Math.floor(Number(o[k]));
+    if(Number.isFinite(n) && n >= 0) limpio[k] = n;
+  });
+  return limpio;
+}
+
+const enteroEntre = (v, min, max, porDefecto) => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : porDefecto;
+};
+
+function aplicarEstado(p){
+  data      = p.data || [];
+  sanear(data);
+  // global se escribe como HTML en el readout del fader: si no fuera un
+  // número, una copia manipulada podría dejar etiquetas ahí adentro.
+  global    = enteroEntre(p.global, 0, 99, 0);
+  overrides = soloEnteros(p.overrides);
+  gcount    = enteroEntre(p.gcount, MINIMO, 9999, MINIMO);
+  counts    = soloEnteros(p.counts);
+  tab       = p.tab || null;
+  tuneo     = sanearColores(p.tuneo);
+  const mios = sanearColores(p.misColores);
+  misColores = Object.keys(mios).length ? mios : null;
+  ahora      = Array.isArray(p.ahora) ? p.ahora : [];
+}
+
+function estadoActual(){
+  return { v:4, guardado:new Date().toISOString(), data, global, overrides, gcount, counts, tab, tuneo, misColores, ahora };
+}
+
+/* --- leer lo que vino incrustado en este mismo archivo --- */
+
+function leerIncrustado(){
+  const el = document.getElementById('datos');
+  if(!el) return null;
+  const txt = (el.textContent || '').trim();
+  if(!txt) return null;
+  try{
+    const p = JSON.parse(txt);
+    return (p && Array.isArray(p.data)) ? p : null;
+  }catch(e){ return null; }
+}
+
+/* --- escribir una copia nueva del archivo, con los datos adentro --- */
+
+// El texto de un script no puede contener la etiqueta que lo cierra. Si un
+// título la tuviera, partiría el archivo al medio; escapando todos los "<"
+// el JSON sigue siendo válido y ya no puede cortar nada.
+const jsonSeguro = o => JSON.stringify(o).replace(/</g, '\\u003c');
+
+function construirArchivo(){
+  const payload = jsonSeguro(estadoActual());
+  const bloque = /(<script type="application\/json" id="datos">)[\s\S]*?(<\/script>)/;
+  if(!bloque.test(FUENTE)) return null;
+  // funcion de reemplazo: asi un "$" en algun titulo no se interpreta
+  return FUENTE.replace(bloque, (m, a, b) => a + payload + b);
+}
+
+function bajar(texto, nombre, tipo){
+  const url = URL.createObjectURL(new Blob([texto], { type: tipo }));
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=> URL.revokeObjectURL(url), 1000);
+}
+
+// el mismo nombre que tiene ahora, para que Finder ofrezca reemplazar
+function nombreArchivo(){
+  let n = '';
+  try{ n = decodeURIComponent((location.pathname || '').split('/').pop() || ''); }catch(e){}
+  return /\.html?$/i.test(n) ? n : 'sonda.html';
+}
+
+function guardarArchivo(){
+  // si estabas escribiendo un titulo, que entre antes de armar el archivo
+  const foco = document.activeElement;
+  if(foco && foco.isContentEditable) foco.blur();
+
+  const html = construirArchivo();
+  if(!html){
+    alert('Could not build the file. Save the data as .json as a backup.');
+    return;
+  }
+  bajar(html, nombreArchivo(), 'text/html');
+  sucio = false;
+  marcarEstado('file written');
+}
+
+function exportarDatos(){
+  const foco = document.activeElement;
+  if(foco && foco.isContentEditable) foco.blur();
+  const f = new Date(), dd = n => String(n).padStart(2, '0');
+  bajar(JSON.stringify(estadoActual(), null, 1),
+        'sonda-' + f.getFullYear() + dd(f.getMonth()+1) + dd(f.getDate()) + '.json',
+        'application/json');
+  marcarEstado('data saved');
+}
+
+/* --- cargar una copia: sirve un .json o un .html guardado antes --- */
+
+function extraer(texto){
+  const t = texto.trim();
+  if(t.startsWith('{')){
+    try{ return JSON.parse(t); }catch(e){ return null; }
+  }
+  const m = t.match(/<script type="application\/json" id="datos">([\s\S]*?)<\/script>/);
+  if(!m) return null;
+  try{ return JSON.parse(m[1]); }catch(e){ return null; }
+}
+
+function importar(archivo){
+  const fr = new FileReader();
+  fr.onload = ()=>{
+    const p = extraer(String(fr.result));
+    if(!p || !Array.isArray(p.data)){
+      alert('Could not read that file: it does not look like a Sonda copy.');
+      return;
+    }
+    if(data.length && !confirm('This replaces everything that is here now. Go on?')) return;
+    Object.keys(tuneo).forEach(k => document.documentElement.style.removeProperty(k));
+    aplicarEstado(p);
+    aplicarTuneo();
+    pintarTodo();
+    guardar();               // la copia esta en pantalla, todavia no en este archivo
+    marcarEstado('copy loaded');
+  };
+  fr.readAsText(archivo);
+}
+
+/* --- controles --- */
+
+$botonG.addEventListener('click', guardarArchivo);
+document.getElementById('exportar').addEventListener('click', exportarDatos);
+document.getElementById('importar').addEventListener('click', ()=>{
+  document.getElementById('archivoCopia').click();
+});
+document.getElementById('archivoCopia').addEventListener('change', ev => {
+  const f = ev.target.files && ev.target.files[0];
+  if(f) importar(f);
+  ev.target.value = '';    // permite volver a elegir el mismo archivo
+});
+
+// Cmd+S / Ctrl+S guarda el archivo en vez de abrir el dialogo del navegador
+addEventListener('keydown', ev => {
+  if((ev.metaKey || ev.ctrlKey) && (ev.key === 's' || ev.key === 'S')){
+    ev.preventDefault();
+    guardarArchivo();
+  }
+});
+
+// red de seguridad: no se cierra en silencio con trabajo sin escribir
+addEventListener('beforeunload', ev => {
+  if(!sucio) return;
+  ev.preventDefault();
+  ev.returnValue = '';
+});
+
+/* ==========================================================================
+   UTILIDADES DE ÁRBOL
+   ========================================================================== */
+
+function profundidad(n){
+  if(!n.c || !n.c.length) return 0;
+  return 1 + Math.max(...n.c.map(profundidad));
+}
+function profundidadLista(lista){
+  if(!lista.length) return 0;
+  return Math.max(...lista.map(profundidad));
+}
+// la lista más larga de todo el árbol (incluida la de proyectos)
+
+function buscar(id, lista = data, padre = null){
+  for(let i=0;i<lista.length;i++){
+    if(lista[i].id === id) return { nodo:lista[i], lista, i, padre };
+    if(lista[i].c && lista[i].c.length){
+      const r = buscar(id, lista[i].c, lista[i]);
+      if(r) return r;
+    }
+  }
+  return null;
+}
+
+// el fader horizontal no tiene memoria: mover uno borra los ajustes de
+// profundidad de adentro. OJO: no toca counts, esos sí se recuerdan.
+function olvidarAdentro(n){
+  (n.c || []).forEach(h => { delete overrides[h.id]; olvidarAdentro(h); });
+}
+
+function expandDe(n, heredada){
+  const o = overrides[n.id];
+  const max = profundidad(n);
+  const v = (o === undefined) ? Math.max(0, heredada) : o;
+  return Math.min(v, max);
+}
+
+// cuántos ítems se ven de una lista
+function visibles(ownerId, total){
+  if(total <= MINIMO) return total;
+  const v = counts[ownerId] ?? gcount;
+  return Math.max(MINIMO, Math.min(total, v));
+}
+
+/* ==========================================================================
+   RENDER
+   ========================================================================== */
+
+
+/* Pegar en un campo editable mete el HTML del portapapeles tal cual. Si
+   copiaste un pedazo de una pagina web, adentro del titulo entran <img>, <b>
+   y lo que venga. El navegador borra los manejadores de evento al pegar, asi
+   que no corre codigo ajeno, pero una imagen remota si se va a pedir al
+   servidor, y esta app promete no hablar con ninguno. Ademas el estilo pegado
+   se ve hasta que confirmas, porque recien ahi se lee el texto pelado.
+
+   Del portapapeles entra texto y nada mas. Los saltos de linea se vuelven
+   espacios: un titulo es un renglon. */
+function pegarTextoPlano(ev){
+  const dt = ev.clipboardData;
+  if(!dt) return;
+  ev.preventDefault();
+  const txt = (dt.getData('text/plain') || '').replace(/\s+/g, ' ');
+  if(!txt) return;
+  // insertText mantiene el deshacer del navegador; si no esta, se inserta a mano
+  let puesto = false;
+  try{ puesto = document.execCommand('insertText', false, txt); }catch(e){}
+  if(puesto) return;
+  const s = getSelection();
+  if(!s || !s.rangeCount) return;
+  const r = s.getRangeAt(0);
+  r.deleteContents();
+  r.insertNode(document.createTextNode(txt));
+  s.collapseToEnd();
+}
+
+const $root = document.getElementById('rootGroup');
+
+// Que se pinta debajo de la consola. En el mapa completo, los proyectos.
+// Dentro de una pestaña, los hijos del proyecto: ahi la profundidad 0 ya son
+// las tareas, y el nombre del proyecto vive en la cabecera.
+function raizActual(){
+  if(tab === AHORA) return { lista: listaAhora(), owner: AHORA, proyecto: null, ahora: true };
+  const p = tab ? data.find(x => x.id === tab) : null;
+  return p ? { lista: p.c, owner: p.id, proyecto: p }
+           : { lista: data, owner: RAIZ, proyecto: null };
+}
+
+function pintarTodo(){
+  limpiarAhora();
+  if(tab && tab !== AHORA && !data.some(x => x.id === tab)) tab = null;   // se borró ese proyecto
+  NIVEL_REAL = mapaNiveles(data);
+  const r = raizActual();
+  pintarTabs();
+  ajustarGlobal(r.lista);
+  pintarRaiz(r);
+  pintarVacio();
+  medirVerticales();
+}
+
+// la lista raiz + el rectangulo invisible para agregar al final
+function pintarRaiz(r){
+  // en Ahora cada fila arranca con el nivel que tiene en el árbol de verdad
+  reconstruirGrupo($root, r.lista, r.ahora ? null : 0, global, r.owner);
+  document.getElementById('addProject').classList.toggle('lejos', !!r.proyecto);
+  if(!r.proyecto) return;
+  const b = document.createElement('button');
+  b.className = 'addrow';
+  b.title = 'Add in "' + (r.proyecto.t || 'Untitled') + '"';
+  b.setAttribute('aria-label', 'Add a task at the end');
+  b.addEventListener('click', agregarAlProyecto);
+  // si el proyecto esta vacio la franja no tendria nada que insinuar: se rotula
+  if(!r.proyecto.c.length){ b.classList.add('pista'); b.textContent = 'First task'; }
+  $root.appendChild(b);
+}
+
+/* --- pestañas: una por proyecto, color propio de la rampa --- */
+
+function pintarTabs(){
+  const cont = document.getElementById('tabs');
+  cont.innerHTML = '';
+
+  const mk = (txt, activa, color, cls, onclick, titulo) => {
+    const b = document.createElement('button');
+    b.className = 'tab' + (cls ? ' ' + cls : '') + (activa ? ' on' : '');
+    b.textContent = txt;
+    b.title = titulo || txt;
+    b.setAttribute('role','tab');
+    b.setAttribute('aria-selected', activa ? 'true' : 'false');
+    // un solo color por pestaña; el apagado y el fondo los deriva el CSS
+    b.style.setProperty('--c', color);
+    b.addEventListener('click', onclick);
+    cont.appendChild(b);
+    return b;
+  };
+
+  mk('All · ' + data.length, tab === null, COLOR_TODOS, 'all', ()=> abrirTab(null), 'See the whole map');
+
+  const nAhora = listaAhora().length;
+  mk('Now · ' + nAhora, tab === AHORA, COLOR_TODOS, 'all', ()=> abrirTab(AHORA),
+     'The tasks you sent with Space, from anywhere in the tree');
+
+  data.forEach((p, i) => {
+    mk(p.t || 'Untitled', tab === p.id, hexNivel(i), '', ()=> abrirTab(p.id), p.t)
+      .dataset.id = p.id;
+  });
+
+  const act = cont.querySelector('.tab.on');
+  if(act && act.scrollIntoView) act.scrollIntoView({block:'nearest', inline:'nearest'});
+}
+
+function abrirTab(id){
+  tab = id;
+  pintarTodo();
+  animar($root.querySelector(':scope > ul.kids'));
+  guardar();
+}
+
+// el nombre del proyecto abierto, en la cabecera y al lado del fader
+function proyectoAbierto(){
+  return tab ? (data.find(x => x.id === tab) || null) : null;
+}
+function nombreProyecto(){
+  const p = proyectoAbierto();
+  return p ? (p.t || 'Untitled') : null;
+}
+function pintarTitulos(){
+  const n = nombreProyecto();
+  document.getElementById('subtitulo').textContent = '— ' + (n || 'mapa de profundidad');
+}
+
+/* --- fader global: la pista es la leyenda de niveles --- */
+
+// una sola linea continua: el color cambia de golpe en cada nivel, sin cortes
+function pistaNiveles(maxD, val){
+  if(maxD < 1) return 'var(--rule)';
+  const TH = 7;   // el recorrido real del thumb esta inset medio thumb
+  const corte = k => 'calc(' + (TH/2) + 'px + (100% - ' + TH + 'px) * ' + (k/maxD).toFixed(6) + ')';
+  const partes = [];
+  for(let k = 1; k <= maxD; k++){
+    const ini = (k === 1) ? '0%' : corte(k-1);
+    const fin = (k === maxD) ? '100%' : corte(k);
+    partes.push(((k <= val) ? hexNivel(k) : 'var(--rule)') + ' ' + ini + ' ' + fin);
+  }
+  return 'linear-gradient(90deg,' + partes.join(',') + ')';
+}
+
+// solo pinta: no toca min/max/value. Es lo que se llama durante el arrastre.
+function refrescarGlobal(maxD){
+  const f = document.getElementById('globalFader');
+  f.style.setProperty('--track', pistaNiveles(maxD, global));
+  f.style.setProperty('--fill', global > 0 ? colorNivel(global) : 'var(--ink)');
+
+  const out = document.getElementById('globalReadout');
+  const p = proyectoAbierto();
+  out.classList.toggle('proj', !!p);
+  out.parentNode.classList.toggle('ancho', !!p);
+  if(p){
+    out.contentEditable = 'true';
+    out.spellcheck = false;
+    out.title = 'Project name';
+    // si lo estas escribiendo, no se pisa el texto ni se pierde el cursor
+    if(document.activeElement !== out) out.textContent = p.t;
+  }else{
+    out.contentEditable = 'false';
+    out.removeAttribute('title');
+    out.innerHTML = global + '<em>/' + maxD + '</em><span class="lvl">' + nivelNombre(global) + '</span>';
+  }
+  pintarTitulos();
+}
+
+function ajustarGlobal(lista){
+  const maxD = Math.max(1, profundidadLista(lista));
+  const f = document.getElementById('globalFader');
+  f.max = maxD;
+  if(global > maxD) global = maxD;
+  f.value = global;
+  refrescarGlobal(maxD);
+}
+
+/* --- un grupo = la regla vertical + su fader + la lista de hermanos --- */
+
+function reconstruirGrupo(g, lista, nivel, heredada, ownerId){
+  // En la hoja Ahora lo completado se esconde en todos los niveles, no solo
+  // en el de las tareas mandadas: una subtarea que llega al 100% también se
+  // va de la hoja, aunque no haya sido la que mandaste. Nada se borra: si la
+  // desmarcás desde el árbol, reaparece donde estaba.
+  if(tab === AHORA) lista = lista.filter(n => porcentaje(n) < 100);
+  g.innerHTML = '';
+  const total = lista.length;
+
+  if(total > MINIMO){
+    const vf = document.createElement('input');
+    vf.type = 'range'; vf.className = 'vfader';
+    vf.min = MINIMO; vf.max = total; vf.step = 1;
+    vf.value = visibles(ownerId, total);
+    vf.setAttribute('aria-label', 'How many items of this list are shown');
+    vf.addEventListener('input', ()=>{
+      counts[ownerId] = +vf.value;
+      // solo repinto la lista: el fader queda intacto y el arrastre no se corta
+      refrescarLista(g, lista, nivel, heredada, ownerId);
+      medirVerticales();
+      guardar();
+    });
+    g.appendChild(vf);
+  }
+
+  const ul = document.createElement('ul');
+  ul.className = 'kids';
+  g.appendChild(ul);
+
+  const rest = document.createElement('button');
+  rest.className = 'rest';
+  g.appendChild(rest);
+
+  refrescarLista(g, lista, nivel, heredada, ownerId);
+  return g;
+}
+
+function refrescarLista(g, lista, nivel, heredada, ownerId){
+  const ul   = g.querySelector(':scope > ul.kids');
+  const rest = g.querySelector(':scope > .rest');
+  const total = lista.length;
+  const vis = visibles(ownerId, total);
+
+  ul.innerHTML = '';
+  lista.slice(0, vis).forEach(n => ul.appendChild(
+    pintarNodo(n, nivel === null ? (NIVEL_REAL.get(n.id) ?? 0) : nivel, heredada, lista)));
+
+  const ocultos = total - vis;
+  rest.style.display = ocultos > 0 ? 'block' : 'none';
+  rest.textContent = ocultos + ' more';
+  rest.onclick = ()=>{
+    counts[ownerId] = total;
+    refrescarLista(g, lista, nivel, heredada, ownerId);
+    const vf = g.querySelector(':scope > .vfader');
+    if(vf) vf.value = total;
+    medirVerticales();
+    guardar();
+  };
+}
+
+function pintarNodo(n, nivel, heredada, lista){
+  const li = document.createElement('li');
+  li.className = 'node';
+  li.dataset.id = n.id;
+  li.dataset.level = nivel;
+
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  bar.style.setProperty('--c', colorNivel(nivel));
+  // el color del nivel vive en la fila: la barrita y el relleno lo comparten,
+  // y el tono tenue lo deriva el CSS con color-mix
+  row.style.setProperty('--c', colorNivel(nivel));
+
+  // relleno de avance: va primero para quedar detrás del texto
+  const relleno = document.createElement('div');
+  relleno.className = 'relleno';
+  relleno.style.width = porcentaje(n) + '%';
+  row.appendChild(relleno);
+  row.appendChild(bar);
+
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.contentEditable = 'true';
+  title.spellcheck = false;
+  title.textContent = n.t;
+  if(!tab && nivel === 0){
+    // en el mapa completo, el titulo de un proyecto es la etiqueta de su pestaña
+    title.addEventListener('input', ()=>{
+      const t = document.querySelector('#tabs .tab[data-id="' + n.id + '"]');
+      if(t) t.textContent = title.textContent.trim() || 'Untitled';
+    });
+  }
+  title.addEventListener('blur', ()=>{
+    const v = title.textContent.trim();
+    if(v !== n.t){
+      n.t = v || 'Untitled'; title.textContent = n.t;
+      if(!tab && nivel === 0) pintarTabs();   // el titulo de un proyecto es su pestaña
+      guardar();
+    }
+  });
+  title.addEventListener('keydown', ev => {
+    // Enter sigue en el mismo nivel: así se tira una lista pareja sin soltar
+    // el teclado. Con Shift baja un nivel y abre una subtarea de esta tarea.
+    if(ev.key === 'Enter'){
+      ev.preventDefault();
+      title.blur();
+      // ⌥Enter envuelve: la tarea pasa a ser hija de una madre nueva.
+      // ⇧Enter baja un nivel. Enter sigue en el mismo.
+      if(ev.altKey) agregarMadre(n.id);
+      else if(ev.shiftKey) agregarHijo(n.id);
+      else agregarHermano(n.id);
+    }
+    if(ev.key === 'Escape'){
+      ev.preventDefault();
+      // Una tarea que nunca llegó a tener nombre y no tiene nada adentro no
+      // deja rastro: Esc la descarta en vez de dejar una fila vacía. Si ya
+      // tenía título, o si tiene hijos, Esc hace lo de siempre: cancelar.
+      // Una imagen también cuenta como contenido: esa tampoco se descarta.
+      if(n.t === '' && n.c.length === 0 && !n.img){ descartar(n.id); return; }
+      title.textContent = n.t;
+      title.blur();
+    }
+  });
+  // ⌘V con una imagen copiada: va a la tarea, no adentro del texto. Sin
+  // esto el título, que es editable, se metería la imagen entre las letras.
+  // Si lo copiado es texto, el pegado sigue su curso de siempre.
+  title.addEventListener('paste', ev => {
+    const f = archivoImagen(ev.clipboardData);
+    if(f){ ev.preventDefault(); ponerImagen(n.id, f); return; }
+    pegarTextoPlano(ev);
+  });
+  row.appendChild(title);
+
+  // miniatura: existe siempre y se esconde si no hay imagen, así pegar una
+  // la muestra en el lugar sin repintar la fila ni sacarte del título
+  const mini = document.createElement('button');
+  mini.type = 'button';
+  mini.className = 'mini';
+  mini.addEventListener('click', ()=> abrirVisor(n.id, mini));
+  pintarMiniatura(mini, n);
+  row.appendChild(mini);
+
+  // un archivo de imagen soltado sobre la fila es de esta tarea
+  row.addEventListener('dragover', ev => {
+    if(!traeArchivos(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'copy';
+    limpiarSoltando(row);
+    row.classList.add('soltando');
+  });
+  row.addEventListener('drop', ev => {
+    if(!traeArchivos(ev)) return;
+    ev.preventDefault();
+    limpiarSoltando(null);
+    ponerImagen(n.id, archivoImagen(ev.dataTransfer));
+  });
+
+  const exp = expandDe(n, heredada);
+  const max = profundidad(n);
+
+  const count = document.createElement('div');
+  count.className = 'count';
+  if(n.c.length && exp === 0){ count.textContent = n.c.length; count.classList.add('hidden-items'); }
+  row.appendChild(count);
+
+  // agarradera para reordenar: se arma acá y se cuelga después del fader
+  const grip = document.createElement('button');
+  grip.className = 'grip';
+  grip.type = 'button';
+  grip.draggable = false;
+  grip.setAttribute('aria-label', 'Move "' + n.t + '" up or down');
+  grip.title = 'Drag it or use ↑↓: they move it among what is visible, and it takes the depth of the place where it lands (→ puts it inside the one above)';
+  grip.addEventListener('pointerdown', ev => iniciarArrastre(ev, li, grip));
+  grip.addEventListener('keydown', ev => {
+    // con ⌥ apretado las flechas son navegacion, no accion: las deja pasar
+    if(ev.altKey || ev.metaKey || ev.ctrlKey) return;
+    if(ev.key === 'ArrowUp'   ){ ev.preventDefault(); moverVisible(n.id, -1); }
+    if(ev.key === 'ArrowDown' ){ ev.preventDefault(); moverVisible(n.id, +1); }
+    if(ev.key === 'ArrowRight'){ ev.preventDefault(); indentar(n.id); }
+    // ← no tiene uso: para subir de nivel alcanza con ↑
+    // en Mac la tecla rotulada "delete" reporta Backspace; la de borrar hacia
+    // adelante (fn+delete) reporta Delete. Las dos tienen que servir.
+    if(ev.key === 'Backspace' || ev.key === 'Delete'){
+      ev.preventDefault();
+      borrarDesdeTeclado(n.id);
+    }
+    // Espacio sobre un boton dispara su clic y encima hace scroll: los dos se cortan.
+    // Enter hace lo mismo que Espacio, como en el boton de hecha.
+    if(ev.key === ' ' || ev.key === 'Spacebar' || ev.key === 'Enter'){
+      ev.preventDefault();
+      alternarAhora(n.id);
+    }
+  });
+
+  const grupo = document.createElement('div');
+  grupo.className = 'group';
+  // el asta de las flechas de las hijas lleva el color de esta fila: se
+  // hereda una sola vez acá en vez de calcularlo en cada hija
+  grupo.style.setProperty('--cp', colorNivel(nivel));
+
+  if(max > 0){
+    const f = document.createElement('input');
+    f.type = 'range'; f.className = 'fader';
+    f.min = 0; f.max = max; f.step = 1; f.value = exp;
+    f.setAttribute('aria-label', 'Depth of ' + n.t);
+    f.style.setProperty('--fill', colorNivel(nivel + Math.max(0, exp-1)));
+
+    const out = document.createElement('div');
+    out.className = 'readout';
+    out.textContent = exp;
+
+    f.addEventListener('input', ()=>{
+      const v = +f.value;
+      overrides[n.id] = v;
+      olvidarAdentro(n);
+      out.textContent = v;
+      f.style.setProperty('--fill', colorNivel(nivel + Math.max(0, v-1)));
+      count.textContent = (n.c.length && v === 0) ? n.c.length : '';
+      count.classList.toggle('hidden-items', v === 0);
+      reconstruirGrupo(grupo, v > 0 ? n.c : [], nivel+1, v-1, n.id);
+      animar(grupo.querySelector(':scope > ul.kids'));
+      medirVerticales();
+      guardar();
+    });
+
+    row.appendChild(f);
+    row.appendChild(out);
+  }else{
+    const m = document.createElement('div'); m.className = 'leaf-mark'; row.appendChild(m);
+    const out = document.createElement('div'); out.className = 'readout'; row.appendChild(out);
+  }
+
+
+  /* --- la ranura: avance en reposo, acciones al pasar, peso al editar --- */
+
+  const ranura = document.createElement('div');
+  ranura.className = 'ranura';
+
+  // 1. reposo
+  const av = document.createElement('div');
+  av.className = 'avance';
+  av.textContent = porcentaje(n);
+  av.title = porcentaje(n) + '% complete';
+
+  // 2. mouse encima
+  const acciones = document.createElement('div');
+  acciones.className = 'acciones';
+  const bAdd = document.createElement('button');
+  bAdd.className = 'act';
+  bAdd.textContent = '+';
+  bAdd.title = 'Add inside "' + n.t + '"';
+  bAdd.addEventListener('click', ()=> agregarHijo(n.id));
+  const bOk = document.createElement('button');
+  bOk.className = 'act';
+  bOk.textContent = '\u2714';
+  bOk.title = n.c.length ? 'Mark the whole branch' : 'Mark as done';
+  bOk.addEventListener('click', ()=> alternarHecho(n.id));
+  acciones.append(grip, bAdd, bOk);
+
+  // 3. editando el titulo
+  const edicion = document.createElement('div');
+  edicion.className = 'edicion';
+  const peso = document.createElement('div');
+  peso.className = 'peso';
+  const pv = pesoEnPorciento(n, lista || [n]);
+  peso.textContent = pv;
+  const solo = !lista || lista.length < 2;
+  if(solo){
+    peso.classList.add('fijo');
+    peso.title = 'No siblings: it is 100% of this list';
+  }else{
+    peso.contentEditable = 'true';
+    peso.spellcheck = false;
+    peso.addEventListener('paste', pegarTextoPlano);
+    peso.title = 'How much it weighs within its list, 1 to 99';
+    peso.addEventListener('keydown', ev => {
+      if(ev.key === 'Enter'){ ev.preventDefault(); peso.blur(); }
+      if(ev.key === 'Escape'){ peso.textContent = pv; peso.blur(); }
+    });
+    peso.addEventListener('blur', ()=>{
+      const v = leerPorcentaje(peso.textContent);
+      // Si escribís el mismo número que ya estaba, no pasa nada. Es lo que
+      // salva a los periódicos: el 33 que ves es un tercio exacto, y volver a
+      // escribir 33 lo dejaría en 33/100 y rompería la simetría de las tres.
+      if(v === null || v === pv){ peso.textContent = pv; return; }
+      if(fijarPeso(n.id, v)){ guardar(); pintarTodo(); }
+      else peso.textContent = pv;
+    });
+  }
+  // peso propio: cuánto del avance no depende de los hijos. Solo aparece
+  // cuando hay hijos que reciban el resto; en una hoja no tendría sentido.
+  let propio = null;
+  if(n.c.length){
+    propio = document.createElement('div');
+    propio.className = 'peso propio';
+    const qv = propioDe(n);
+    propio.textContent = qv;
+    propio.contentEditable = 'true';
+    propio.spellcheck = false;
+    propio.addEventListener('paste', pegarTextoPlano);
+    propio.title = 'Own work: how much of this task does not depend on its children, 0 to 100';
+    propio.setAttribute('aria-label', 'Own weight of "' + n.t + '", 0 to 100');
+    propio.addEventListener('keydown', ev => {
+      if(ev.key === 'Enter'){ ev.preventDefault(); propio.blur(); }
+      if(ev.key === 'Escape'){ propio.textContent = qv; propio.blur(); }
+    });
+    propio.addEventListener('blur', ()=>{
+      const v = leerPropio(propio.textContent);
+      if(v === null || v === propioDe(n)){ propio.textContent = propioDe(n); return; }
+      n.q = v;
+      guardar(); pintarTodo();
+    });
+  }
+  const bDel = document.createElement('button');
+  bDel.className = 'act';
+  bDel.textContent = '\u00d7';
+  bDel.title = 'Delete';
+  // Sin esto la × no se puede apretar. Al apoyar el mouse, el título pierde el
+  // foco, la fila sale de modo edición y la capa se apaga entre el apretar y el
+  // soltar: el clic termina cayendo en el vacío. Safari además no le da foco a
+  // los botones al hacer clic, así que no hay a dónde saltar. preventDefault en
+  // mousedown deja el foco donde estaba y el clic llega.
+  bDel.addEventListener('mousedown', ev => ev.preventDefault());
+  bDel.addEventListener('click', ()=> borrar(n.id));
+  if(propio) edicion.append(peso, propio, bDel);
+  else edicion.append(peso, bDel);
+
+  ranura.append(av, acciones, edicion);
+  row.appendChild(ranura);
+
+  // La ranura sigue en modo edicion mientras el foco este en el titulo, en el
+  // peso o en la ×. Sin esto, hacer clic en el peso apaga el titulo y el peso
+  // desaparece justo cuando lo ibas a tocar.
+  const deEdicion = el => el === title || el === peso || el === propio || el === bDel;
+  row.addEventListener('focusin', ev => {
+    if(deEdicion(ev.target)) row.classList.add('editing');
+  });
+  row.addEventListener('focusout', ev => {
+    const va = ev.relatedTarget;
+    if(!va || !deEdicion(va)) row.classList.remove('editing');
+  });
+
+  li.appendChild(row);
+  li.appendChild(grupo);
+  reconstruirGrupo(grupo, exp > 0 ? n.c : [], nivel+1, exp-1, n.id);
+
+  return li;
+}
+
+// El fader vertical se dibuja rotado: su largo tiene que igualar el alto real
+// del grupo, y eso solo se sabe después de pintar.
+// OJO: el largo depende del valor que el propio fader controla. Si lo
+// remidiéramos durante el arrastre, cada cambio de valor movería la escala bajo
+// el dedo y el valor rebotaría entre dos números. Por eso se congela mientras
+// lo estás moviendo y se remide al soltar.
+let faderEnUso = null;
+
+document.addEventListener('pointerdown', e => {
+  const t = e.target;
+  if(t && t.classList && t.classList.contains('vfader')) faderEnUso = t;
+}, true);
+
+['pointerup','pointercancel'].forEach(ev => {
+  document.addEventListener(ev, ()=>{
+    if(faderEnUso){ faderEnUso = null; medirVerticales(); }
+  }, true);
+});
+
+function medirVerticales(){
+  requestAnimationFrame(()=>{
+    document.querySelectorAll('.group').forEach(g=>{
+      const vf = g.querySelector(':scope > .vfader');
+      if(!vf || vf === faderEnUso) return;
+      const rest = g.querySelector(':scope > .rest');
+      const add  = g.querySelector(':scope > .addrow');
+      const alto = g.offsetHeight
+        - (rest && rest.style.display !== 'none' ? rest.offsetHeight : 0)
+        - (add ? add.offsetHeight : 0);
+      vf.style.width = Math.max(46, alto - 2) + 'px';
+    });
+  });
+}
+window.addEventListener('resize', medirVerticales);
+
+function animar(cont){
+  if(!cont) return;
+  [...cont.children].forEach((el,i)=>{
+    el.classList.add('new-in');
+    el.style.animationDelay = Math.min(i*18, 160) + 'ms';
+    el.addEventListener('animationend', ()=>{
+      el.classList.remove('new-in'); el.style.animationDelay='';
+    }, {once:true});
+  });
+}
+
+function pintarVacio(){
+  const e = document.getElementById('emptyState');
+  if(tab === AHORA && !listaAhora().length){
+    e.innerHTML = '<div class="empty"><strong>The Now sheet is empty.</strong>' +
+      '<p>Put the focus on a task’s move button and press Space to send it ' +
+      'here, from anywhere in the tree.</p>' +
+      '<p>The task is not copied and does not move: it stays where it is. When ' +
+      'it reaches 100% it leaves this sheet on its own —and it does not come ' +
+      'back on its own: to have it again, send it again— and the same goes for ' +
+      'every subtask it has inside.</p></div>';
+    return;
+  }
+  // El árbol vacío no dice nada: queda el + y nada más. El de Ahora sí, porque
+  // esa hoja no se llena tipeando y hay que decir cómo entra una tarea.
+  e.innerHTML = '';
+}
+
+/* ==========================================================================
+   AVANCE — pesos y completitud
+   --------------------------------------------------------------------------
+   Un nodo sin hijos vale 0 o 1 según su marca. Uno con hijos se reparte en dos:
+   una parte es su trabajo propio (q, de fábrica el 20%) y el resto es el
+   promedio ponderado de lo que tiene adentro. Así el padre nunca llega a 100
+   solo porque sus hijos estén listos: falta la marca explícita de su parte.
+   Con q = 0 vuelve el comportamiento de bolsa: lo deciden los hijos y el
+   cierre es automático. Los pesos entre hermanas son enteros crudos y
+   positivos: como la fracción se saca dividiendo por la suma de la lista,
+   agregar una hermana diluye a todas sin tocar ningún número guardado, y un
+   peso no puede valer 0 ni el total mientras esté acompañado.
+   ========================================================================== */
+
+const pesoDe = n => (typeof n.p === 'number' && n.p > 0) ? n.p : 1;
+const sumaPesos = lista => lista.reduce((s, x) => s + pesoDe(x), 0);
+
+// la parte del avance que un nodo con hijos no delega: un entero de 0 a 100
+function propioDe(n){
+  return (typeof n.q === 'number' && n.q >= 0 && n.q <= 100) ? n.q : 20;
+}
+
+// Un solo recorrido devuelve las tres cosas que hacen falta: el avance exacto,
+// y si el subárbol está entero o intacto. Las dos banderas son las que evitan
+// que el redondeo muestre 100 sin estarlo, o 0 habiendo algo hecho.
+// "Entera" ya no sale sola de los hijos: hace falta la marca propia, salvo que
+// el peso propio sea 0 (bolsa) o 100 (no delega). "Intacta" quiere decir que
+// ni la parte propia ni ningún hijo arrancaron.
+function avanceDe(n){
+  if(!n.c.length){
+    const hecho = !!n.h;
+    return { av: hecho ? 1 : 0, todas: hecho, ninguna: !hecho };
+  }
+  let acum = 0, total = 0, todasH = true, ningunaH = true;
+  for(const hijo of n.c){
+    const e = avanceDe(hijo);
+    const w = pesoDe(hijo);
+    acum  += w * e.av;
+    total += w;
+    if(!e.todas)   todasH   = false;
+    if(!e.ninguna) ningunaH = false;
+  }
+  const propio  = propioDe(n);
+  const mia     = !!n.h;                        // la parte propia está hecha
+  const avHijos = total ? acum / total : 0;
+  const av = (propio / 100) * (mia ? 1 : 0) + (1 - propio / 100) * avHijos;
+  return {
+    av,
+    todas:   (mia  || propio === 0) && (todasH   || propio === 100),
+    ninguna: (!mia || propio === 0) && (ningunaH || propio === 100)
+  };
+}
+
+// El entero que se muestra. 100 y 0 salen de la estructura, no del redondeo.
+// Se trunca, no se redondea: 12,5% se lee 12%, que es lo que dijiste.
+function porcentaje(n){
+  const e = avanceDe(n);
+  if(e.todas)   return 100;
+  if(e.ninguna) return 0;
+  return Math.min(99, Math.max(1, Math.floor(e.av * 100)));
+}
+
+/* --- el porcentaje que se ve y se escribe --- */
+
+function mcd(a, b){ a = Math.abs(a); b = Math.abs(b); while(b){ [a, b] = [b, a % b]; } return a || 1; }
+
+/* Cuánto pesa n dentro de su lista, como entero de 1 a 99. Se trunca, igual que
+   el avance, así que tres hermanas parejas muestran 33 cada una y suman 99. Es
+   solo lo que se dibuja: por dentro cada una vale un tercio exacto. */
+function pesoEnPorciento(n, lista){
+  const total = sumaPesos(lista);
+  if(!total || lista.length < 2) return 100;
+  return Math.min(99, Math.max(1, Math.floor(pesoDe(n) / total * 100)));
+}
+
+// Un entero de 1 a 99, con o sin %. Cualquier otra cosa devuelve null y el
+// valor anterior queda donde estaba. 0 y 100 quedan afuera: un peso 0 haría
+// que marcar esa tarea no mueva nada, y 100 dejaría a las hermanas en 0.
+function leerPorcentaje(txt){
+  const m = String(txt).trim().match(/^(\d{1,3})\s*%?$/);
+  if(!m) return null;
+  const v = +m[1];
+  return (v >= 1 && v <= 99) ? v : null;
+}
+
+// Un entero de 0 a 100, con o sin %. Acá sí entran las puntas: 0 deja todo en
+// manos de los hijos (el nodo cierra solo) y 100 no delega nada.
+function leerPropio(txt){
+  const m = String(txt).trim().match(/^(\d{1,3})\s*%?$/);
+  if(!m) return null;
+  const v = +m[1];
+  return (v >= 0 && v <= 100) ? v : null;
+}
+
+/* Fijar el peso de un nodo en pct% sin tocar la proporción entre sus hermanas.
+   Hace falta p / (p + S) = pct / 100, con S la suma de las otras. Multiplicando
+   a las demás por (100 - pct) y poniendo p = pct·S la igualdad queda exacta y
+   todo sigue siendo entero: no aparece ni un decimal. */
+function fijarPeso(id, pct){
+  const r = buscar(id);
+  if(!r || r.lista.length < 2) return false;
+  if(!(pct >= 1 && pct <= 99)) return false;
+  const S = r.lista.reduce((acc, x) => x === r.nodo ? acc : acc + pesoDe(x), 0);
+  r.lista.forEach(x => { x.p = (x === r.nodo) ? pct * S : pesoDe(x) * (100 - pct); });
+  simplificarPesos(r.lista);
+  acotarPesos(r.lista);
+  return true;
+}
+
+/* Cada edición multiplica los pesos por hasta 99. El máximo común divisor los
+   baja casi siempre, pero no siempre: sin este tope, después de una decena de
+   ajustes sobre la misma lista los números se pasan del entero exacto de JS y
+   las proporciones empiezan a mentir. Al pasarse de la raya se reescala todo. */
+function acotarPesos(lista){
+  const total = sumaPesos(lista);
+  if(total <= 100000) return;
+  const k = 10000 / total;
+  lista.forEach(x => x.p = Math.max(1, Math.round(pesoDe(x) * k)));
+  simplificarPesos(lista);
+}
+
+// los pesos solo importan en proporción, así que se los mantiene chicos
+function simplificarPesos(lista){
+  if(!lista.length) return;
+  let g = 0;
+  lista.forEach(x => g = mcd(g, pesoDe(x)));
+  if(g > 1) lista.forEach(x => x.p = pesoDe(x) / g);
+}
+
+/* --- marcar --- */
+
+// Marca el nodo y baja por toda la rama. El propio nodo primero: con el peso
+// propio su marca ya no está dormida, es la que cierra su parte del avance.
+// Sin esta línea el ✔ completaba los hijos pero la tarea no llegaba nunca a 100.
+function marcarTodo(n, valor){
+  n.h = valor;
+  n.c.forEach(h => marcarTodo(h, valor));
+}
+
+/* Un mapa id → porcentaje de todo el árbol, en un solo recorrido. */
+function mapaAvances(lista, m = new Map()){
+  lista.forEach(n => { m.set(n.id, porcentaje(n)); mapaAvances(n.c, m); });
+  return m;
+}
+
+/* Marcar toca el número de la fila, de todos sus descendientes y de todos sus
+   ancestros — pero no cambia ni una posición ni un tamaño. Así que en vez de
+   repintar el árbol, se reescriben en su lugar los dos elementos que dependen
+   del avance. De paso es lo que hace visible la transición del relleno: sobre
+   un elemento recién creado no hay desde dónde animar. */
+function refrescarAvances(){
+  const m = mapaAvances(data);
+  document.querySelectorAll('li.node[data-id]').forEach(li => {
+    const p = m.get(li.dataset.id);
+    if(p === undefined) return;
+    const num = li.querySelector(':scope > .row > .ranura > .avance');
+    const rel = li.querySelector(':scope > .row > .relleno');
+    if(num){ num.textContent = p; num.title = p + '% complete'; }
+    if(rel) rel.style.width = p + '%';
+  });
+}
+
+// En una hoja alterna. En una rama, la completa entera; si ya estaba entera,
+// la vacía. Es el mismo gesto en los dos casos: "esto está listo" o no.
+function alternarHecho(id){
+  const r = buscar(id);
+  if(!r) return;
+  const e = avanceDe(r.nodo);
+  marcarTodo(r.nodo, !e.todas);
+  guardar();
+  const vecina = idFilaVecina(id);
+  if(tab === AHORA){
+    // acá la fila se va de la hoja: hay que repintar, no alcanza con el número
+    pintarTodo();
+  }else{
+    refrescarAvances();
+    pintarTabs();     // el contador de "Ahora" puede haber cambiado
+  }
+  enfocarBoton(vecina, '.acciones button:last-child');   // la ✔ de la tarea de abajo
+}
+
+// Los archivos guardados antes de esta función no traen p, h ni q.
+function sanear(lista){
+  lista.forEach(n => {
+    if(typeof n.p !== 'number' || !(n.p > 0)) n.p = 1;
+    if(typeof n.h !== 'boolean') n.h = false;
+    if(typeof n.q !== 'number' || !(n.q >= 0 && n.q <= 100)) n.q = 20;
+    if(!Array.isArray(n.c)) n.c = [];
+    // img es opcional: si no es una imagen incrustada válida, no existe
+    if('img' in n && !(typeof n.img === 'string' &&
+       /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(n.img))) delete n.img;
+    sanear(n.c);
+  });
+}
+
+
+/* Borrar con el teclado: igual que la ×, pero devolviendo el foco a la fila de
+   arriba para no cortar el recorrido. */
+function borrarDesdeTeclado(id){
+  const r = buscar(id); if(!r) return;
+  const cuantos = r.nodo.c.length;
+  if(cuantos && !confirm('"' + r.nodo.t + '" has ' + cuantos +
+     (cuantos === 1 ? ' thing inside' : ' things inside') + '. Delete all of it?')) return;
+  const previo  = r.i > 0 ? r.lista[r.i - 1] : null;
+  const destino = previo ? previo.id : (r.padre ? r.padre.id : null);
+  r.lista.splice(r.i, 1);
+  simplificarPesos(r.lista);
+  delete overrides[id];
+  delete counts[id];
+  guardar();
+  pintarTodo();
+  if(destino) requestAnimationFrame(()=>{
+    const g = document.querySelector('li.node[data-id="' + destino + '"] > .row .grip');
+    if(g) g.focus();
+  });
+}
+
+/* ==========================================================================
+   NAVEGACIÓN CON ⌥ — moverse por filas sin recorrer cada control
+   --------------------------------------------------------------------------
+   Tab recorre todo en fila india: para bajar una tarea hay que pasar por sus
+   cuatro botones. Con ⌥ apretado, las flechas se vuelven navegación:
+
+     ⌥↑ ⌥↓  el mismo botón, una fila más arriba o más abajo
+     ⌥← ⌥→  el botón anterior o siguiente dentro de la fila
+
+   Recorre solo los tres botones de acciones. Soltás ⌥ y las mismas teclas
+   vuelven a ser acciones sobre el botón donde quedaste parado.
+   ========================================================================== */
+
+/* Con ⌥ apretado las flechas recorren únicamente los tres botones de la capa
+   de acciones —mover, + y ✔—, que son justamente los que Tab a secas no
+   alcanza en Safari. Los textos y los faders quedan afuera a propósito: para
+   llegar ahí ya está ⌥Tab.
+
+   La capa está escondida con opacidad, no con display, así que sus botones son
+   enfocables igual, y al recibir el foco la capa se enciende sola. */
+const botonesDe = row => [...row.querySelectorAll('.acciones button')];
+
+const filasVisibles = () => [...document.querySelectorAll('li.node > .row')];
+
+function navegarAlt(ev){
+  const foco = document.activeElement;
+  const enBoton = !!(foco && foco.matches && foco.matches('.acciones button'));
+  const fila = foco && foco.closest ? foco.closest('.row') : null;
+
+  // Primer toque: vengas de donde vengas —de un título, de un fader, de una
+  // pestaña o de ningún lado— la primera flecha te deja parado en el primer
+  // botón. Si estabas sobre una fila, en la suya; si no, en la de más arriba.
+  if(!enBoton){
+    const destino = botonesDe(fila || filasVisibles()[0] || document.body)[0];
+    if(!destino) return false;
+    destino.focus();
+    if(destino.scrollIntoView) destino.scrollIntoView({block:'nearest'});
+    return true;
+  }
+
+  const botones = botonesDe(fila);
+  const i = botones.indexOf(foco);
+
+  // izquierda y derecha: dentro de la fila, y se frena en las puntas
+  if(ev.key === 'ArrowLeft' || ev.key === 'ArrowRight'){
+    const destino = botones[i + (ev.key === 'ArrowRight' ? 1 : -1)];
+    if(!destino) return false;
+    destino.focus();
+    return true;
+  }
+
+  // arriba y abajo: el mismo botón, una fila más allá
+  const filas = filasVisibles();
+  const otra = filas[filas.indexOf(fila) + (ev.key === 'ArrowDown' ? 1 : -1)];
+  if(!otra) return false;
+  const equivalentes = botonesDe(otra);
+  const destino = equivalentes[i] || equivalentes[0];
+  if(!destino) return false;
+  destino.focus();
+  if(destino.scrollIntoView) destino.scrollIntoView({block:'nearest'});
+  return true;
+}
+
+addEventListener('keydown', ev => {
+  if(!ev.altKey || ev.metaKey || ev.ctrlKey) return;
+  if(!/^Arrow(Up|Down|Left|Right)$/.test(ev.key)) return;
+  if(navegarAlt(ev)) ev.preventDefault();
+}, true);   // en captura: llega antes que los manejadores de cada control
+
+
+/* ==========================================================================
+   AHORA — una hoja de trabajo, no una copia
+   --------------------------------------------------------------------------
+   Guarda ids, no tareas. La tarea sigue viviendo en su lugar del árbol; acá
+   solo se la referencia. Por eso no hay nada que sincronizar: lo que se ve en
+   Ahora ES la misma tarea, y editarla de un lado la edita del otro.
+
+   La regla de desaparición es una sola y sirve para las dos direcciones que
+   pediste: se muestra mientras su porcentaje sea menor a 100. Si la completás
+   desde Ahora, llega a 100 y se va. Si la completás desde el árbol, llega a
+   100 y también se va. No hace falta recordar quién la marcó.
+
+   La salida es definitiva: al llegar al 100% la tarea se suelta de la lista
+   y no vuelve sola, aunque después le agregues subtareas o desmarques algo.
+   Para tenerla de vuelta hay que mandarla otra vez.
+
+   La regla de esconder corre en todos los niveles: si mandaste una tarea con
+   subtareas, cada una que llega al 100% también se esconde de la hoja, aunque
+   no haya sido la que mandaste. Esas subtareas nunca se "mandaron" —solo se
+   muestran dentro de su madre— así que si las desmarcás reaparecen ahí. El
+   filtro vive en reconstruirGrupo, así que el contador de "N más" y el fader
+   vertical solo cuentan lo pendiente.
+   ========================================================================== */
+
+const enAhora = id => ahora.indexOf(id) >= 0;
+
+/* El foco no se queda huérfano ni vuelve a la consola: al mandar una tarea a
+   Ahora o al marcarla como hecha, salta al mismo botón de la fila de abajo.
+   Así se puede seguir bajando la lista sin recorrer todo de nuevo.
+   Se captura la fila vecina antes de repintar, porque el árbol se reconstruye. */
+
+// la fila de abajo en pantalla; si la actual era la última, la de arriba
+function idFilaVecina(id){
+  const filas = filasVisibles();
+  const li = document.querySelector('li.node[data-id="' + id + '"] > .row');
+  const i = filas.indexOf(li);
+  if(i < 0) return null;
+  const otra = filas[i + 1] || filas[i - 1];
+  return otra ? otra.closest('li.node').dataset.id : null;
+}
+
+function enfocarBoton(id, selector){
+  if(!id) return;
+  requestAnimationFrame(()=>{
+    const b = document.querySelector('li.node[data-id="' + id + '"] > .row ' + selector);
+    if(b){ b.focus(); if(b.scrollIntoView) b.scrollIntoView({block:'nearest'}); }
+  });
+}
+
+function alternarAhora(id){
+  const i = ahora.indexOf(id);
+  if(i >= 0) ahora.splice(i, 1); else ahora.push(id);
+  guardar();
+  const vecina = idFilaVecina(id);
+  pintarTodo();
+  enfocarBoton(vecina, '.grip');   // el botón de mover de la tarea de abajo
+}
+
+// las que se ven: existen todavía y no llegaron a 100
+function listaAhora(){
+  const out = [];
+  ahora.forEach(id => {
+    const r = buscar(id);
+    if(r && porcentaje(r.nodo) < 100) out.push(r.nodo);
+  });
+  return out;
+}
+
+// Las referencias se sueltan en dos casos: la tarea ya no existe, o llegó al
+// 100%. La salida de la hoja es definitiva: una tarea completa no vuelve sola
+// aunque después le agregues subtareas o desmarques algo — para tenerla de
+// vuelta hay que mandarla otra vez. Así una madre completada no resucita
+// junto a las subtareas nuevas que mandaste por separado.
+function limpiarAhora(){
+  const antes = ahora.length;
+  ahora = ahora.filter(id => {
+    const r = buscar(id);
+    return r && porcentaje(r.nodo) < 100;
+  });
+  return ahora.length !== antes;
+}
+
+/* En Ahora las tareas conservan el color y el nombre del nivel que tienen en
+   el árbol de verdad. Su posición en esta hoja es prestada; su profundidad no.
+   Así se ve de dónde salió cada una sin tener que ir a buscarla. */
+function mapaNiveles(lista, nivel = 0, m = new Map()){
+  lista.forEach(n => { m.set(n.id, nivel); mapaNiveles(n.c, nivel + 1, m); });
+  return m;
+}
+
+
+/* ==========================================================================
+   MOVER — arriba y abajo entre lo visible
+   --------------------------------------------------------------------------
+   Un solo gesto para todo, con mouse o teclado: la tarea sube o baja un lugar
+   en el orden que se ve en pantalla, y adopta la profundidad del lugar donde
+   cae. El nivel no se guarda en los datos —es posicional—, así que si la fila
+   vecina está en profundidad 3 la tarea pasa a profundidad 3, y si está en la
+   raíz va a la raíz. Lo desplegado manda: lo que no se ve no es un destino.
+   La única excepción lateral es → en el teclado, que la mete adentro de la
+   tarea de arriba para ganar profundidad cuando el destino está plegado.
+
+   Tres detalles que salen del diseño de la app:
+
+   · Solo se mueve dentro de lo visible. La lista está recortada por el eje
+     de cantidad, y en el DOM solo existen los primeros N. Eso evita el
+     problema de arrastrar algo al fondo y que desaparezca detrás del recorte:
+     lo que ves es lo que podés mover. Para acomodar un ítem que quedó afuera,
+     primero se abre la lista con el fader vertical.
+
+   · Durante el gesto con el mouse no se repinta nada. Se mueve el mismo
+     elemento entre listas con insertBefore, que traslada el nodo sin
+     destruirlo; así la agarradera sobrevive al arrastre y no se corta la
+     captura del puntero. El árbol de datos recién se toca al soltar.
+
+   · Una tarea se mueve siempre con sus hijas: el subárbol viaja intacto, con
+     sus ajustes de profundidad en overrides, que se mudan junto con su id.
+     En la hoja Ahora no hay profundidades: ahí arriba y abajo solo reordenan
+     la hoja.
+   ========================================================================== */
+
+let arrastre = null;
+
+// devuelve el id de la lista a la que pertenece un nodo (para counts)
+function duenoDe(r){ return r.padre ? r.padre.id : RAIZ; }
+
+// el centro de la fila, no del nodo entero: un nodo abierto mide mucho y
+// tomarle el medio haría que el punto de suelte quede lejos del título
+function medioFila(li){
+  const row = li.querySelector(':scope > .row');
+  const r = (row || li).getBoundingClientRect();
+  return r.top + r.height / 2;
+}
+
+function iniciarArrastre(ev, li, grip){
+  if(ev.button !== undefined && ev.button !== 0) return;
+  const ul = li.parentElement;
+  if(!ul) return;
+  ev.preventDefault();
+  // el clic también enfoca: así después del mouse se puede seguir con las flechas
+  grip.focus({ preventScroll: true });
+  try{ grip.setPointerCapture(ev.pointerId); }catch(e){}
+  arrastre = { li, ul, grip, id: li.dataset.id, desde: [...ul.children].indexOf(li), destino: null };
+  li.classList.add('arrastrando');
+  grip.classList.add('activo');
+  document.body.classList.add('reordenando');
+}
+
+function moverArrastre(ev){
+  if(!arrastre) return;
+  const { li, ul } = arrastre;
+  const y = ev.clientY;
+
+  // En la hoja Ahora las filas son referencias planas: solo se reordena la hoja
+  if(tab === AHORA){
+    let antes = null;
+    for(const h of ul.children){
+      if(h === li) continue;
+      if(y < medioFila(h)){ antes = h; break; }
+    }
+    if(antes){
+      if(li.nextElementSibling !== antes) ul.insertBefore(li, antes);
+    }else if(ul.lastElementChild !== li){
+      ul.appendChild(li);
+    }
+    return;
+  }
+
+  // En el árbol cualquier fila visible es un destino posible, menos la
+  // arrastrada y las que cuelgan de ella (no puede caer dentro de sí misma).
+  // Solo arriba y abajo: mitad superior → antes, mitad inferior → después.
+  // Como en el teclado, "después" de una fila desplegada es ADENTRO: su
+  // primera hija — es el mismo lugar que "antes" de esa primera hija.
+  const candidatas = [...$root.querySelectorAll('li.node')].filter(x => x !== li && !li.contains(x));
+  if(!candidatas.length){ arrastre.destino = null; return; }
+  let objetivo = candidatas[0];
+  for(const x of candidatas){
+    const r = x.querySelector(':scope > .row').getBoundingClientRect();
+    if(r.top <= y) objetivo = x; else break;
+  }
+  const r = objetivo.querySelector(':scope > .row').getBoundingClientRect();
+  const antes = (y - r.top) / Math.max(1, r.height) < 0.5;
+  const kids = objetivo.querySelector(':scope > .group > ul.kids');
+  const primeraHija = !antes && !!(kids && [...kids.children].some(x => x !== li));
+  if(antes){
+    objetivo.parentElement.insertBefore(li, objetivo);
+  }else if(primeraHija){
+    kids.insertBefore(li, [...kids.children].find(x => x !== li));
+  }else{
+    objetivo.parentElement.insertBefore(li, objetivo.nextElementSibling);
+  }
+  arrastre.destino = { refId: objetivo.dataset.id, antes, primeraHija };
+}
+
+function soltarArrastre(){
+  if(!arrastre) return;
+  const { li, ul, grip, id, desde, destino } = arrastre;
+  arrastre = null;
+  li.classList.remove('arrastrando');
+  grip.classList.remove('activo');
+  document.body.classList.remove('reordenando');
+
+  // En Ahora, la fila de arriba pertenece a la hoja y no al arbol: mover ahi
+  // cambia el orden de la hoja. Los que estan recortados o completados no se
+  // ven, asi que conservan su lugar y solo se reacomodan las ranuras visibles.
+  if(tab === AHORA && ul === $root.querySelector(':scope > ul.kids')){
+    const hasta = [...ul.children].indexOf(li);
+    if(hasta < 0 || hasta === desde) return;
+    const vis = [...ul.children].map(x => x.dataset.id);
+    const set = new Set(vis);
+    let k = 0;
+    ahora = ahora.map(x => set.has(x) ? vis[k++] : x);
+    guardar();
+    requestAnimationFrame(()=>{
+      pintarTodo();
+      // al repintar el foco se pierde: vuelve a la agarradera de la tarea
+      const g = document.querySelector('li.node[data-id="' + id + '"] > .row .grip');
+      if(g) g.focus();
+    });
+    return;
+  }
+
+  if(!destino) return;                           // no salió de su lugar
+  const r = buscar(id);
+  if(!r) return;
+
+  // si cae donde ya estaba, no hay nada que hacer
+  const t0 = buscar(destino.refId);
+  if(!t0) return;
+  if(destino.primeraHija){
+    if(t0.nodo === r.padre && r.i === 0) return;
+  }else if(t0.lista === r.lista){
+    const idx0 = destino.antes ? t0.i : t0.i + 1;
+    if(idx0 === r.i || idx0 === r.i + 1) return;
+  }
+  r.lista.splice(r.i, 1);
+  simplificarPesos(r.lista);
+  // los índices se recalculan después de sacarla: si era de la misma lista,
+  // su salida corrió los lugares
+  const t = buscar(destino.refId);
+  if(!t) return;
+  if(destino.primeraHija){
+    t.nodo.c.unshift(r.nodo);
+    asegurarVisible(t.nodo.id, t.nodo.c.length);
+  }else{
+    const idx = destino.antes ? t.i : t.i + 1;
+    t.lista.splice(idx, 0, r.nodo);
+    asegurarVisible(duenoDe(t), idx + 1);
+  }
+
+  guardar();
+  requestAnimationFrame(()=>{
+    pintarTodo();
+    // al repintar el foco se pierde: vuelve a la agarradera de la tarea
+    const g = document.querySelector('li.node[data-id="' + id + '"] > .row .grip');
+    if(g) g.focus();
+  });
+}
+
+document.addEventListener('pointermove', moverArrastre);
+document.addEventListener('pointerup', soltarArrastre);
+document.addEventListener('pointercancel', soltarArrastre);
+
+// Misma operación con el teclado: sin esto la función existe solo para quien
+// puede arrastrar. Con la agarradera enfocada, las flechas mueven el nodo.
+function moverNodo(id, delta){
+  // en la hoja Ahora las flechas mueven el orden de la hoja
+  if(tab === AHORA && enAhora(id)){
+    const vis = listaAhora().map(n => n.id);
+    const iv = vis.indexOf(id);
+    if(iv < 0 || iv + delta < 0 || iv + delta >= vis.length) return false;
+    const orden = vis.slice();
+    orden.splice(iv, 1);
+    orden.splice(iv + delta, 0, id);
+    const set = new Set(vis);
+    let k = 0;
+    ahora = ahora.map(x => set.has(x) ? orden[k++] : x);
+    guardar();
+    pintarTodo();
+    requestAnimationFrame(()=>{
+      const g = document.querySelector('li.node[data-id="' + id + '"] > .row .grip');
+      if(g) g.focus();
+    });
+    return true;
+  }
+  const r = buscar(id);
+  if(!r) return false;
+  const dueno = duenoDe(r);
+  const tope  = visibles(dueno, r.lista.length);   // no salir de lo visible
+  const hasta = r.i + delta;
+  if(hasta < 0 || hasta >= tope) return false;
+  r.lista.splice(r.i, 1);
+  r.lista.splice(hasta, 0, r.nodo);
+  guardar();
+  pintarTodo();
+  requestAnimationFrame(()=>{
+    const g = document.querySelector('li.node[data-id="' + id + '"] > .row .grip');
+    if(g) g.focus();
+  });
+  return true;
+}
+
+/* Un solo gesto para todo: la tarea sube o baja un lugar en el orden que se
+   ve en pantalla, y adopta la profundidad del lugar donde cae. Si la fila
+   vecina está en profundidad 3, la tarea pasa a profundidad 3; si está en la
+   raíz, va a la raíz. Lo desplegado manda: lo que no se ve no es un destino.
+   Como el nivel es posicional no hay nada que ajustar, y el subárbol viaja
+   siempre junto con la tarea.
+
+   ↓ es el espejo exacto de ↑. Subir inserta antes de la fila de arriba, así
+   que entra en las ramas desplegadas y sale antes del padre. Bajar hace lo
+   mismo al revés: "después" de una fila desplegada es ADENTRO, como primera
+   hija; y si no hay ninguna fila visible debajo pero la tarea tiene padre,
+   sale un nivel y queda después de él. */
+function moverVisible(id, dir){
+  if(tab === AHORA) return moverNodo(id, dir);   // la hoja se reordena como siempre
+  const li = document.querySelector('li.node[data-id="' + id + '"]');
+  if(!li) return false;
+
+  // la fila vecina en el orden visible, saltando el propio subárbol
+  const filas = [...$root.querySelectorAll('li.node')];
+  const i = filas.indexOf(li);
+  let vecina = null;
+  if(dir < 0){
+    vecina = filas[i - 1] || null;             // la de arriba nunca es descendiente
+  }else{
+    for(let k = i + 1; k < filas.length; k++){
+      if(!li.contains(filas[k])){ vecina = filas[k]; break; }
+    }
+  }
+
+  const r = buscar(id);
+  if(!r) return false;
+
+  // Sin fila visible debajo del subárbol: si está dentro de una rama, sale
+  // un nivel y queda después del padre. Así se llega a profundidad 0 aunque
+  // la rama sea lo último que se ve.
+  if(!vecina){
+    if(dir < 0 || !r.padre) return false;
+    const pr = buscar(r.padre.id);
+    if(!pr) return false;
+    // Dentro de una pestaña no se sale del proyecto: caer en la lista raíz
+    // la convertiría en proyecto y desaparecería de la vista (en Todos sí
+    // se permite: ahí solo cambia de profundidad).
+    if(tab && !pr.padre) return false;
+    r.lista.splice(r.i, 1);
+    simplificarPesos(r.lista);
+    pr.lista.splice(pr.i + 1, 0, r.nodo);
+    asegurarVisible(pr.padre ? pr.padre.id : RAIZ, pr.i + 2);
+    guardar();
+    pintarTodo();
+    requestAnimationFrame(()=>{
+      const g = document.querySelector('li.node[data-id="' + id + '"] > .row .grip');
+      if(g) g.focus();
+    });
+    return true;
+  }
+
+  const refId = vecina.dataset.id;
+  // "después" de una fila desplegada es adentro: su primera hija
+  const kids = vecina.querySelector(':scope > .group > ul.kids');
+  const entraAdentro = dir > 0 && !!(kids && kids.children.length);
+
+  r.lista.splice(r.i, 1);
+  simplificarPesos(r.lista);
+  const t = buscar(refId);
+  if(!t) return false;
+  if(entraAdentro){
+    t.nodo.c.unshift(r.nodo);
+    asegurarVisible(t.nodo.id, t.nodo.c.length);
+  }else{
+    const idx = dir < 0 ? t.i : t.i + 1;
+    t.lista.splice(idx, 0, r.nodo);
+    asegurarVisible(duenoDe(t), idx + 1);
+  }
+
+  guardar();
+  pintarTodo();
+  requestAnimationFrame(()=>{
+    const g = document.querySelector('li.node[data-id="' + id + '"] > .row .grip');
+    if(g) g.focus();
+  });
+  return true;
+}
+
+/* → la mete adentro de la tarea de arriba: es la vía para ganar profundidad
+   cuando el destino no está desplegado y ↑↓ no pueden llegar. La rama que la
+   recibe se abre sola para que la mudanza se vea. */
+function indentar(id){
+  if(tab === AHORA) return false;
+  const r = buscar(id);
+  if(!r || r.i === 0) return false;              // sin hermana arriba no hay adónde entrar
+  const hermana = r.lista[r.i - 1];
+  r.lista.splice(r.i, 1);
+  simplificarPesos(r.lista);
+  hermana.c.push(r.nodo);
+  overrides[hermana.id] = Math.max(1, overrides[hermana.id] ?? 1);
+  asegurarVisible(hermana.id, hermana.c.length);
+
+  guardar();
+  pintarTodo();
+  requestAnimationFrame(()=>{
+    const g = document.querySelector('li.node[data-id="' + id + '"] > .row .grip');
+    if(g) g.focus();
+  });
+  return true;
+}
+
+
+/* ==========================================================================
+   ACCIONES
+   ========================================================================== */
+
+function enfocarTitulo(id, alFinal){
+  requestAnimationFrame(()=>{
+    const el = document.querySelector('li.node[data-id="' + id + '"] > .row > .title');
+    if(!el) return;
+    el.focus();
+    const r = document.createRange(); r.selectNodeContents(el);
+    if(alFinal) r.collapse(false);          // cursor al final, sin seleccionar
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    el.scrollIntoView({block:'nearest', behavior:'smooth'});
+  });
+}
+
+const enfocarNuevo = id => enfocarTitulo(id, false);
+
+// al agregar hay que asegurarse de que el nuevo entre en lo visible
+function asegurarVisible(ownerId, cantidad){
+  counts[ownerId] = Math.max(counts[ownerId] ?? gcount, cantidad);
+}
+
+function agregarHijo(id){
+  const r = buscar(id); if(!r) return;
+  const nuevo = nodo('');
+  r.nodo.c.push(nuevo);
+  overrides[id] = Math.max(1, overrides[id] ?? 1);
+  asegurarVisible(id, r.nodo.c.length);
+  pintarTodo(); guardar(); enfocarNuevo(nuevo.id);
+}
+
+function agregarHermano(id){
+  const r = buscar(id); if(!r) return;
+  const nuevo = nodo('');
+  r.lista.splice(r.i+1, 0, nuevo);
+  asegurarVisible(r.padre ? r.padre.id : RAIZ, r.i + 2);
+  // Si estás en Ahora, la hermana nueva nace en el árbol y no en la hoja: sin
+  // esto apretás Enter y no aparece nada. Entra al lado de la original.
+  if(tab === AHORA && enAhora(id)){
+    ahora.splice(ahora.indexOf(id) + 1, 0, nuevo.id);
+    asegurarVisible(AHORA, ahora.length);
+  }
+  pintarTodo(); guardar(); enfocarNuevo(nuevo.id);
+}
+
+// ⌥Enter: envuelve la tarea en una madre nueva. La madre ocupa su lugar y
+// hereda su peso, así las proporciones de la lista no se mueven; la tarea
+// queda adentro como hija. Nace abierta para que la hija se vea, y el foco
+// cae en su título para escribirla sin soltar el teclado.
+function agregarMadre(id){
+  const r = buscar(id); if(!r) return;
+  const nuevo = nodo('');
+  nuevo.p = pesoDe(r.nodo);
+  r.lista.splice(r.i, 1, nuevo);
+  nuevo.c.push(r.nodo);
+  overrides[nuevo.id] = 1;
+  // Si estabas en Ahora y la tarea era de la hoja, la madre toma su ranura:
+  // la hoja sigue mostrando lo mismo, ahora con su envoltorio.
+  if(tab === AHORA && enAhora(id)){
+    ahora.splice(ahora.indexOf(id), 1, nuevo.id);
+  }
+  pintarTodo(); guardar(); enfocarNuevo(nuevo.id);
+}
+
+// Baja de un nodo sin nombre y sin hijos: no pregunta nada porque no hay nada
+// que perder, y devuelve el foco al renglón de arriba para no cortar el tecleo.
+function descartar(id){
+  const r = buscar(id); if(!r) return;
+  const previo  = r.i > 0 ? r.lista[r.i - 1] : null;
+  const destino = previo ? previo.id : (r.padre ? r.padre.id : null);
+  r.lista.splice(r.i, 1);
+  simplificarPesos(r.lista);
+  delete overrides[id];
+  delete counts[id];
+  pintarTodo();
+  guardar();
+  if(destino) enfocarTitulo(destino, true);
+}
+
+function borrar(id){
+  const r = buscar(id); if(!r) return;
+  const n = r.nodo.c.length;
+  if(n && !confirm('"' + r.nodo.t + '" has ' + n + (n===1?' thing inside':' things inside') + '. Delete all of it?')) return;
+  r.lista.splice(r.i, 1);
+  simplificarPesos(r.lista);   // las hermanas conservan su proporción
+  delete overrides[id];
+  delete counts[id];
+  pintarTodo(); guardar();
+}
+
+/* ==========================================================================
+   CONTROLES GLOBALES
+   ========================================================================== */
+
+document.getElementById('globalFader').addEventListener('input', e => {
+  global = +e.target.value;
+  overrides = {};                 // empareja la profundidad de todo el mapa
+  // durante el arrastre no se reconstruye ni el fader ni las pestañas:
+  // solo se repinta la pista, el numero y el arbol.
+  refrescarGlobal(+e.target.max);
+  pintarRaiz(raizActual());
+  animar($root.querySelector(':scope > ul.kids'));
+  medirVerticales();
+  guardar();
+});
+
+// una tarea nueva al final del proyecto abierto (el rectangulo invisible)
+function agregarAlProyecto(){
+  const p = tab ? data.find(x => x.id === tab) : null;
+  if(!p) return;
+  const nuevo = nodo('');
+  p.c.push(nuevo);
+  asegurarVisible(p.id, p.c.length);
+  pintarTodo(); guardar(); enfocarNuevo(nuevo.id);
+}
+
+function nuevoProyecto(enPestana){
+  const nuevo = nodo('');
+  data.push(nuevo);
+  asegurarVisible(RAIZ, data.length);
+  if(enPestana || tab){
+    // adentro de una pestaña el primer campo que se escribe es el titulo
+    tab = nuevo.id;
+    pintarTodo(); guardar(); enfocarTituloGlobal();
+    return;
+  }
+  pintarTodo(); guardar(); enfocarNuevo(nuevo.id);
+}
+
+/* --- el titulo al lado del fader es tambien donde se renombra el proyecto --- */
+
+const $out = document.getElementById('globalReadout');
+let tituloPrevio = '';
+
+function enfocarTituloGlobal(){
+  requestAnimationFrame(()=>{
+    if($out.contentEditable !== 'true') return;
+    $out.focus();
+    const r = document.createRange(); r.selectNodeContents($out);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  });
+}
+
+$out.addEventListener('paste', pegarTextoPlano);
+$out.addEventListener('focus', ()=>{
+  const p = proyectoAbierto();
+  tituloPrevio = p ? p.t : '';
+});
+$out.addEventListener('input', ()=>{
+  const p = proyectoAbierto(); if(!p) return;
+  p.t = $out.textContent.trim();
+  const t = document.querySelector('#tabs .tab[data-id="' + p.id + '"]');
+  if(t) t.textContent = p.t || 'Untitled';
+  pintarTitulos();
+});
+$out.addEventListener('blur', ()=>{
+  const p = proyectoAbierto(); if(!p) return;
+  p.t = $out.textContent.trim() || 'Untitled';
+  $out.textContent = p.t;
+  pintarTabs(); pintarTitulos(); guardar();
+});
+$out.addEventListener('keydown', ev => {
+  if(ev.key === 'Enter'){ ev.preventDefault(); $out.blur(); }
+  if(ev.key === 'Escape'){
+    const p = proyectoAbierto();
+    if(p){ p.t = tituloPrevio; $out.textContent = p.t; }
+    $out.blur();
+  }
+});
+
+document.getElementById('addProject').addEventListener('click', ()=> nuevoProyecto(false));
+document.getElementById('newTab').addEventListener('click', ()=> nuevoProyecto(true));
+
+document.getElementById('reset').addEventListener('click', ()=>{
+  if(!confirm('This deletes every project. Are you sure?')) return;
+  data = []; global = 0; overrides = {}; counts = {}; gcount = MINIMO; tab = null;
+  pintarTodo(); guardar();
+});
+
+/* ==========================================================================
+   HERRAMIENTA DE COLOR
+   ========================================================================== */
+
+// solo lo cromatico de la interfaz: los niveles se cambian por paleta entera
+const TOKENS = [
+  ['--paper',   'Paper'],
+  ['--paper-2', 'Paper on hover'],
+  ['--white',   'Paper while editing'],
+  ['--ink',     'Letters'],
+  ['--ink-2',   'Letters 2nd'],
+  ['--ink-3',   'Faint letters'],
+  ['--rule',    'Faders and lines']
+];
+
+const PALETAS = [
+  { nombre:'Bathymetric', c:['#CF503A','#E7A82B','#6DBD55','#16A492','#0E7597','#0E3B64'] },
+  { nombre:'Original',    c:['#123B5C','#1F6E8C','#2E9E8F','#6FAF63','#D9A441','#C25E4A'] },
+  { nombre:'Viridis',     c:['#46327E','#365C8D','#277F8E','#1FA187','#4AC16D','#A0DA39'] },
+  { nombre:'Ember',       c:['#3C1B4E','#7A2359','#B33A50','#DD6539','#EE9B2D','#F2C744'] },
+  { nombre:'Monochrome',   c:['#0B2E4A','#14506F','#1D7291','#3897B0','#62B9C9','#93D6DE'] },
+  { nombre:'Earth',      c:['#3A2B21','#6B4A2E','#96703A','#B49B57','#8B9C5C','#5F7F4E'] },
+  { nombre:'Plasma',      c:['#5B189E','#8C2981','#C33D80','#E85B63','#F98E52','#F7CB44'] },
+  { nombre:'Copper',       c:['#4A2A1E','#7A4526','#A66A2E','#C88F45','#DFB169','#EFD79B'] },
+  { nombre:'Citrus',     c:['#0F4C4A','#1E7A63','#4C9E48','#8FBB2E','#CBC92C','#F0DE55'] }
+];
+
+/* Los tres juegos de color de la interfaz. Los dos primeros son fijos; el
+   tercero se llena con lo que tengas puesto en el momento de guardarlo, y
+   viaja adentro del archivo como todo lo demás. */
+const DUOS = {
+  oscuro: {
+    '--paper':'#212121', '--paper-2':'#444444', '--white':'#181818',
+    '--ink':'#C0C0C0', '--ink-2':'#C0C0C0', '--ink-3':'#FFFFFF', '--rule':'#5E5E5E'
+  },
+  claro: {
+    '--paper':'#757575', '--paper-2':'#6B6B6B', '--white':'#585858',
+    '--ink':'#000000', '--ink-2':'#000000', '--ink-3':'#000000', '--rule':'#4E4E4E'
+  }
+};
+
+const RAIZ_CSS = document.documentElement;
+const normHex = v => {
+  v = (v || '').trim().replace(/^#/,'');
+  if(/^[0-9a-f]{3}$/i.test(v)) v = v.split('').map(c=>c+c).join('');
+  return /^[0-9a-f]{6}$/i.test(v) ? '#' + v.toUpperCase() : null;
+};
+const valorActual = t => (getComputedStyle(RAIZ_CSS).getPropertyValue(t).trim() || '#000000').toUpperCase();
+
+function aplicarTuneo(){
+  Object.entries(tuneo).forEach(([k,v]) => RAIZ_CSS.style.setProperty(k, v));
+  leerPaleta();
+}
+
+function fijarColor(token, hex){
+  tuneo[token] = hex;
+  RAIZ_CSS.style.setProperty(token, hex);
+  leerPaleta();
+  pintarTodo();
+  marcarDuos();
+  guardar();
+}
+
+// solo enciende o apaga los tres botones: no reconstruye el panel, asi que no
+// te saca el foco del casillero de hexa mientras escribis
+function marcarDuos(){
+  const actual = duoActual();
+  const juegos = [DUOS.oscuro, DUOS.claro, misColores];
+  document.querySelectorAll('#devDuos button').forEach((b, i) => {
+    b.classList.toggle('on', mismoDuo(actual, juegos[i]));
+  });
+}
+
+function aplicarPaleta(p){
+  p.c.forEach((hex, i) => {
+    tuneo['--d' + i] = hex;
+    RAIZ_CSS.style.setProperty('--d' + i, hex);
+  });
+  leerPaleta();
+  pintarTodo();
+  guardar();
+  marcarPaleta();
+}
+
+/* --- juegos de color de la interfaz --- */
+
+function aplicarDuo(juego){
+  Object.entries(juego).forEach(([k, v]) => {
+    tuneo[k] = v;
+    RAIZ_CSS.style.setProperty(k, v);
+  });
+  leerPaleta();
+  pintarTodo();
+  guardar();
+  pintarDev();
+}
+
+// juego de colores tal como está la interfaz en este momento
+function duoActual(){
+  const o = {};
+  TOKENS.forEach(([t]) => o[t] = valorActual(t));
+  return o;
+}
+
+const mismoDuo = (a, b) => !!a && !!b &&
+  TOKENS.every(([t]) => (a[t] || '').toUpperCase() === (b[t] || '').toUpperCase());
+
+function guardarMisColores(){
+  misColores = duoActual();
+  guardar();
+  pintarDev();
+}
+
+function marcarPaleta(){
+  const actual = RAMPA.map(c => c.toUpperCase()).join();
+  document.querySelectorAll('#devPaletas .paleta').forEach((b, i) => {
+    b.classList.toggle('on', PALETAS[i].c.join().toUpperCase() === actual);
+  });
+}
+
+function pintarDev(){
+  // los tres juegos de interfaz, arriba de todo
+  const duos = document.getElementById('devDuos');
+  duos.innerHTML = '';
+  const actual = duoActual();
+
+  const chip = (nombre, juego, alClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const m = document.createElement('span');
+    m.className = 'muestra';
+    if(juego){
+      ['--paper','--paper-2','--white','--ink','--rule'].forEach(t => {
+        const i = document.createElement('i'); i.style.background = juego[t]; m.appendChild(i);
+      });
+    }else{
+      const i = document.createElement('i'); i.style.background = 'transparent'; m.appendChild(i);
+    }
+    const n = document.createElement('span');
+    n.textContent = nombre;
+    b.append(m, n);
+    if(juego) b.classList.toggle('on', mismoDuo(actual, juego));
+    if(alClick) b.addEventListener('click', alClick);
+    else b.disabled = true;
+    return b;
+  };
+
+  duos.append(
+    chip('Dark',  DUOS.oscuro, ()=> aplicarDuo(DUOS.oscuro)),
+    chip('Light', DUOS.claro,  ()=> aplicarDuo(DUOS.claro)),
+    chip('Mine',  misColores,  misColores ? ()=> aplicarDuo(misColores) : null)
+  );
+
+  // el boton que llena la tercera ranura con lo que haya puesto ahora
+  const viejo = document.querySelector('.dev .guardarDuo');
+  if(viejo) viejo.remove();
+  const gd = document.createElement('button');
+  gd.type = 'button';
+  gd.className = 'guardarDuo';
+  gd.textContent = misColores ? 'Replace "Mine" with the current one' : 'Save the current one as "Mine"';
+  gd.addEventListener('click', guardarMisColores);
+  duos.after(gd);
+
+  const cont = document.getElementById('devTokens');
+  cont.innerHTML = '';
+  TOKENS.forEach(([token, nombre]) => {
+    const f = document.createElement('div');
+    f.className = 'fila';
+    const val = valorActual(token);
+
+    const lab = document.createElement('label');
+    lab.textContent = nombre;
+    const sw = document.createElement('input');
+    sw.type = 'color'; sw.value = val; sw.title = nombre;
+    const hex = document.createElement('input');
+    hex.className = 'hex'; hex.value = val; hex.maxLength = 7;
+    hex.spellcheck = false; hex.setAttribute('aria-label', nombre);
+
+    const poner = (v, desdeTexto) => {
+      const n = normHex(v);
+      hex.classList.toggle('mal', !n);
+      if(!n) return;
+      if(desdeTexto) sw.value = n; else hex.value = n;
+      fijarColor(token, n);
+    };
+    hex.addEventListener('input', ()=> poner(hex.value, true));
+    hex.addEventListener('blur', ()=>{ hex.value = valorActual(token); hex.classList.remove('mal'); });
+    sw.addEventListener('input', ()=> poner(sw.value, false));
+
+    f.append(lab, sw, hex);
+    cont.appendChild(f);
+  });
+
+  const pal = document.getElementById('devPaletas');
+  pal.innerHTML = '';
+  PALETAS.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'paleta';
+    const tira = document.createElement('span');
+    tira.className = 'tira';
+    p.c.forEach(c => { const i = document.createElement('i'); i.style.background = c; tira.appendChild(i); });
+    const nom = document.createElement('span');
+    nom.textContent = p.nombre;
+    b.append(tira, nom);
+    b.addEventListener('click', ()=> aplicarPaleta(p));
+    pal.appendChild(b);
+  });
+  marcarPaleta();
+}
+
+/* --- instrucciones: hover para mirar, clic para dejarlo abierto --- */
+
+const $ayuda = document.getElementById('ayuda');
+const $ayudaAbrir = document.getElementById('ayudaAbrir');
+
+function fijarAyuda(v){
+  $ayuda.classList.toggle('fija', v);
+  $ayudaAbrir.setAttribute('aria-expanded', v ? 'true' : 'false');
+}
+
+$ayudaAbrir.addEventListener('click', ()=> fijarAyuda(!$ayuda.classList.contains('fija')));
+// un clic afuera lo suelta; adentro no, que ahí están sus botones
+addEventListener('pointerdown', ev => {
+  if(!$ayuda.contains(ev.target)) fijarAyuda(false);
+});
+addEventListener('keydown', ev => {
+  if(ev.key !== 'Escape' || !$ayuda.classList.contains('fija')) return;
+  fijarAyuda(false);
+  // si estabas adentro del panel, el foco vuelve al botón y no al vacío
+  if($ayuda.contains(document.activeElement)) $ayudaAbrir.focus();
+});
+
+document.getElementById('devtoggle').addEventListener('click', ()=>{
+  const d = document.getElementById('dev');
+  d.hidden = !d.hidden;
+  if(!d.hidden) pintarDev();
+});
+document.getElementById('devCerrar').addEventListener('click', ()=>{
+  document.getElementById('dev').hidden = true;
+});
+document.getElementById('devReset').addEventListener('click', ()=>{
+  Object.keys(tuneo).forEach(k => RAIZ_CSS.style.removeProperty(k));
+  tuneo = {};
+  leerPaleta();
+  pintarTodo();
+  pintarDev();
+  guardar();
+});
+
+/* ==========================================================================
+   IMÁGENES — una por tarea, dentro del archivo
+   --------------------------------------------------------------------------
+   El archivo es la base de datos, así que cada imagen viaja adentro del .html
+   como texto (base64) en el campo img del nodo, y cada guardado la vuelve a
+   escribir entera. Por eso se comprimen sin piedad: se achican a IMG_LADO px
+   del lado largo y se exportan en JPEG de calidad baja. Una foto de celular
+   de varios megas queda en unos 10 a 20 KB.
+
+   JPEG y no WebP a propósito: WebP pesaría algo menos, pero Safari no sabe
+   exportarlo desde un canvas, y en vez de fallar devuelve un PNG diez veces
+   más pesado sin avisar.
+
+   Es un atributo del nodo y no un nodo aparte: no cuenta como tarea, no tiene
+   peso ni avance, y el nodo sigue siendo un título con sus hijos. Si una
+   tarea necesita varias imágenes, van en hijos, una en cada uno, y quedan
+   sujetas a los dos faders como cualquier otra cosa. Borrar la tarea borra
+   su imagen y mover la rama se la lleva: vive ahí.
+   ========================================================================== */
+
+const IMG_LADO    = 400;    // px del lado largo; subilo si no se leen las capturas
+const IMG_CALIDAD = 0.35;   // JPEG, de 0 a 1
+
+const esImagen = f => !!f && (/^image\//.test(f.type || '') ||
+  /\.(jpe?g|png|gif|webp|avif|bmp|heic|heif)$/i.test(f.name || ''));
+
+// el primer archivo de imagen que traiga un pegado o un arrastre
+function archivoImagen(dt){
+  if(!dt) return null;
+  const f = Array.from(dt.files || []).find(esImagen);
+  if(f) return f;
+  // algunos navegadores la entregan solo como item, no en files
+  for(const it of Array.from(dt.items || [])){
+    if(it.kind !== 'file') continue;
+    const g = it.getAsFile();
+    if(esImagen(g)) return g;
+  }
+  return null;
+}
+
+const traeArchivos = ev => !!(ev.dataTransfer &&
+  Array.from(ev.dataTransfer.types || []).indexOf('Files') >= 0);
+
+// lo que ocupa en el archivo, que guarda el texto tal cual
+const kbImagen = s => Math.max(1, Math.round(s.length / 1024));
+
+function comprimirImagen(archivo){
+  return new Promise((resolver, rechazar) => {
+    const url = URL.createObjectURL(archivo);
+    const im = new Image();
+    im.onerror = () => { URL.revokeObjectURL(url); rechazar(new Error('ilegible')); };
+    im.onload = () => {
+      URL.revokeObjectURL(url);
+      const w0 = im.naturalWidth, h0 = im.naturalHeight;
+      if(!w0 || !h0){ rechazar(new Error('vacía')); return; }
+      const k = Math.min(1, IMG_LADO / Math.max(w0, h0));
+      const w = Math.max(1, Math.round(w0 * k));
+      const h = Math.max(1, Math.round(h0 * k));
+
+      // Se achica de a mitades. Un solo salto de 4000 a 400 px saltea
+      // pixeles y deja los bordes serruchados; bajando a la mitad cada vez,
+      // cada paso promedia bien y la versión chica se sigue reconociendo.
+      let fuente = im, sw = w0, sh = h0;
+      while(sw / 2 >= w && sh / 2 >= h){
+        const c = document.createElement('canvas');
+        c.width = Math.round(sw / 2); c.height = Math.round(sh / 2);
+        c.getContext('2d').drawImage(fuente, 0, 0, c.width, c.height);
+        fuente = c; sw = c.width; sh = c.height;
+      }
+
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const cx = cv.getContext('2d');
+      // JPEG no tiene transparencia: sin un fondo, lo transparente sale negro
+      cx.fillStyle = '#fff';
+      cx.fillRect(0, 0, w, h);
+      cx.imageSmoothingQuality = 'high';
+      cx.drawImage(fuente, 0, 0, w, h);
+      resolver(cv.toDataURL('image/jpeg', IMG_CALIDAD));
+    };
+    im.src = url;
+  });
+}
+
+// Pegar o soltar otra imagen sobre una tarea que ya tiene una la reemplaza.
+async function ponerImagen(id, archivo){
+  if(!esImagen(archivo)){ marcarEstado('that is not an image'); return; }
+  let dato;
+  try{ dato = await comprimirImagen(archivo); }
+  catch(e){ marcarEstado('could not read that image'); return; }
+  // mientras se comprimía la tarea pudo haberse borrado
+  const r = buscar(id);
+  if(!r) return;
+  r.nodo.img = dato;
+  refrescarMiniaturas(id);
+  guardar();
+  marcarEstado('image added · ' + kbImagen(dato) + ' KB');
+}
+
+function pintarMiniatura(b, n){
+  b.hidden = !n.img;
+  b.textContent = '';
+  if(!n.img) return;
+  const im = document.createElement('img');
+  im.alt = '';
+  im.src = n.img;
+  b.appendChild(im);
+  b.title = 'See the image';
+  b.setAttribute('aria-label', 'See the image of "' + (n.t || 'Untitled') + '"');
+}
+
+// la misma tarea puede estar dibujada más de una vez (en Ahora, adentro de
+// su madre y suelta): se actualizan todas sus miniaturas
+function refrescarMiniaturas(id){
+  const r = buscar(id); if(!r) return;
+  document.querySelectorAll('li.node[data-id="' + CSS.escape(id) + '"] > .row > .mini')
+    .forEach(b => pintarMiniatura(b, r.nodo));
+}
+
+function limpiarSoltando(salvo){
+  document.querySelectorAll('.row.soltando').forEach(r => {
+    if(r !== salvo) r.classList.remove('soltando');
+  });
+}
+
+// Un archivo soltado fuera de una fila no puede abrirse en la pestaña: el
+// navegador reemplazaría la app por la imagen y se perdería lo que no está
+// escrito. Si ninguna fila lo tomó, el arrastre se rechaza.
+addEventListener('dragover', ev => {
+  if(!traeArchivos(ev) || ev.defaultPrevented) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'none';
+  limpiarSoltando(null);
+});
+addEventListener('drop', ev => {
+  if(!traeArchivos(ev)) return;
+  ev.preventDefault();
+  limpiarSoltando(null);
+});
+// saliendo de la ventana con el archivo, ninguna fila queda marcada
+addEventListener('dragleave', ev => { if(!ev.relatedTarget) limpiarSoltando(null); });
+
+/* --- visor: la imagen en su tamaño real --- */
+
+const $visor       = document.getElementById('visor');
+const $visorQuitar = document.getElementById('visorQuitar');
+const $visorCerrar = document.getElementById('visorCerrar');
+let visorId = null;       // la tarea cuya imagen se está viendo
+let visorVuelta = null;   // a dónde vuelve el foco al cerrar
+
+function abrirVisor(id, desde){
+  const r = buscar(id);
+  if(!r || !r.nodo.img) return;
+  visorId = id;
+  visorVuelta = desde || null;
+  document.getElementById('visorImg').src = r.nodo.img;
+  document.getElementById('visorNombre').textContent = r.nodo.t || 'Untitled';
+  document.getElementById('visorPeso').textContent = kbImagen(r.nodo.img) + ' KB';
+  $visor.hidden = false;
+  $visorCerrar.focus();
+}
+
+function cerrarVisor(){
+  if($visor.hidden) return;
+  $visor.hidden = true;
+  document.getElementById('visorImg').removeAttribute('src');
+  const v = visorVuelta;
+  visorId = null; visorVuelta = null;
+  if(!v || !v.isConnected) return;
+  // si la miniatura se fue (quitaste la imagen), el foco va a la agarradera
+  // de la misma fila, que es por donde se la maneja con el teclado
+  if(!v.hidden) v.focus();
+  else {
+    const g = v.closest('.row') && v.closest('.row').querySelector('.grip');
+    if(g) g.focus();
+  }
+}
+
+$visorCerrar.addEventListener('click', cerrarVisor);
+$visorQuitar.addEventListener('click', ()=>{
+  const id = visorId;
+  const r = id && buscar(id);
+  if(r && r.nodo.img){
+    delete r.nodo.img;
+    refrescarMiniaturas(id);
+    guardar();
+    marcarEstado('image removed');
+  }
+  cerrarVisor();
+});
+// tocar afuera de la imagen también cierra
+$visor.addEventListener('click', ev => { if(ev.target === $visor) cerrarVisor(); });
+
+addEventListener('keydown', ev => {
+  if($visor.hidden) return;
+  if(ev.key === 'Escape'){ ev.preventDefault(); ev.stopPropagation(); cerrarVisor(); return; }
+  // el foco no se escapa a la página de atrás mientras el visor está abierto
+  if(ev.key === 'Tab'){
+    ev.preventDefault();
+    const bs = [$visorQuitar, $visorCerrar];
+    const i = bs.indexOf(document.activeElement);
+    bs[(i + (ev.shiftKey ? bs.length - 1 : 1) + bs.length) % bs.length].focus();
+  }
+}, true);
+
+
+/* ==========================================================================
+   ARRANQUE
+   ========================================================================== */
+
+(function(){
+  const p = leerIncrustado();
+  if(p) aplicarEstado(p);
+  else { data = SEMILLA; global = 0; sanear(data); }
+  aplicarTuneo();
+  pintarTodo();
+  sucio = false;          // recién abierto: lo que se ve es lo que dice el archivo
+  pintarEstado();
+})();
+</script></body></html>
